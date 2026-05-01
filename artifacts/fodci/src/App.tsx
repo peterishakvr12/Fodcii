@@ -14,6 +14,7 @@ import LeaderboardPage from "@/pages/leaderboard"
 import AboutPage from "@/pages/about"
 import ProfilePage from "@/pages/profile"
 import UserProfilePage from "@/pages/user-profile"
+import WelcomePage from "@/pages/welcome"
 
 const queryClient = new QueryClient()
 
@@ -29,7 +30,8 @@ function Router() {
       <Route path="/about" component={AboutPage} />
       <Route path="/profile" component={ProfilePage} />
       <Route path="/users/:id" component={UserProfilePage} />
-      <Route path="/welcome" component={HomePage} />
+      <Route path="/welcome_page" component={WelcomePage} />
+      <Route path="/welcome" component={WelcomePage} />
       <Route component={NotFound} />
     </Switch>
   )
