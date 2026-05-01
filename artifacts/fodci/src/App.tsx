@@ -13,6 +13,7 @@ import ProblemDetailPage from "@/pages/problem-detail"
 import LeaderboardPage from "@/pages/leaderboard"
 import AboutPage from "@/pages/about"
 import ProfilePage from "@/pages/profile"
+import UserProfilePage from "@/pages/user-profile"
 
 const queryClient = new QueryClient()
 
@@ -27,6 +28,8 @@ function Router() {
       <Route path="/leaderboard" component={LeaderboardPage} />
       <Route path="/about" component={AboutPage} />
       <Route path="/profile" component={ProfilePage} />
+      <Route path="/users/:id" component={UserProfilePage} />
+      <Route path="/welcome" component={HomePage} />
       <Route component={NotFound} />
     </Switch>
   )

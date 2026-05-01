@@ -18,7 +18,7 @@ const mockProblems = [
     category: "Arrays",
     difficulty: "Easy",
     level: 1,
-    description: "Find two numbers in an array that add up to a target sum.",
+    description: "Given an array of integers nums and an integer target, return indices of the two numbers such that they add up to target.",
     solved: false,
   },
   {
@@ -27,7 +27,7 @@ const mockProblems = [
     category: "Strings",
     difficulty: "Easy",
     level: 1,
-    description: "Reverse a given string using different approaches.",
+    description: "Write a function that reverses a string. The input string is given as an array of characters.",
     solved: true,
   },
   {
@@ -36,39 +36,39 @@ const mockProblems = [
     category: "Algorithms",
     difficulty: "Medium",
     level: 2,
-    description: "Implement binary search algorithm on a sorted array.",
+    description: "Given a sorted array and a target, write a function to search target in the array with O(log n) runtime complexity.",
     solved: false,
   },
   {
     id: 4,
-    title: "Merge Sort",
-    category: "Algorithms",
-    difficulty: "Medium",
-    level: 2,
-    description: "Implement the merge sort algorithm.",
+    title: "Valid Parentheses",
+    category: "Stacks",
+    difficulty: "Easy",
+    level: 1,
+    description: "Given a string of brackets, determine if the input string is valid (brackets are closed in the correct order).",
     solved: false,
   },
   {
     id: 5,
-    title: "Graph Traversal",
-    category: "Graphs",
-    difficulty: "Hard",
-    level: 3,
-    description: "Implement DFS and BFS for graph traversal.",
+    title: "Maximum Subarray",
+    category: "Dynamic Programming",
+    difficulty: "Medium",
+    level: 2,
+    description: "Given an integer array nums, find the subarray with the largest sum, and return its sum.",
     solved: false,
   },
   {
     id: 6,
-    title: "Dynamic Programming",
-    category: "DP",
+    title: "Graph Traversal (BFS/DFS)",
+    category: "Graphs",
     difficulty: "Hard",
     level: 3,
-    description: "Solve the classic knapsack problem using dynamic programming.",
+    description: "Given a directed graph, find all reachable nodes from a given source node and return them in BFS order.",
     solved: false,
   },
 ]
 
-const categories = ["All", "Arrays", "Strings", "Algorithms", "Graphs", "DP"]
+const categories = ["All", "Arrays", "Strings", "Algorithms", "Stacks", "Dynamic Programming", "Graphs"]
 const levels = ["All", "1", "2", "3"]
 
 export default function ProblemsPage() {
