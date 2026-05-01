@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Fodci - Problem Solving Platform"
+version = "1.0.0"
+id = "artifacts/fodci"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 19469
+
+[services.development]
+run = "pnpm --filter @workspace/fodci run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/fodci", "run", "build" ]
+publicDir = "artifacts/fodci/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "19469"
+BASE_PATH = "/"
