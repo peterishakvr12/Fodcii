@@ -2,13 +2,24 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card } from "@/components/ui/card"
-import { Play, Send } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
+import { Play, Send, CheckCircle, XCircle } from "lucide-react"
+
+interface TestCaseResult {
+  description: string
+  input: string
+  expected: string
+  actual: string
+  passed: boolean
+  stderr?: string
+}
 
 interface SubmitResult {
   success: boolean
   message?: string
   passedTests?: number
   totalTests?: number
+  testCases?: TestCaseResult[]
 }
 
 interface CodeEditorProps {
@@ -47,12 +58,16 @@ console.log(solution());`,
 
 export function CodeEditor({ language, initialCode, problemId, onRun, onSubmit }: CodeEditorProps) {
   const [code, setCode] = useState(initialCode || languageTemplates[language] || "")
-  const [output, setOutput] = useState("")
+  const [runOutput, setRunOutput] = useState("")
+  const [submitResult, setSubmitResult] = useState<SubmitResult | null>(null)
   const [isRunning, setIsRunning] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [activeTab, setActiveTab] = useState("code")
 
   const handleRun = async () => {
     setIsRunning(true)
+    setActiveTab("output")
+    setRunOutput("Running...")
     try {
       const response = await fetch("/api/code/run", {
         method: "POST",
@@ -60,10 +75,12 @@ export function CodeEditor({ language, initialCode, problemId, onRun, onSubmit }
         body: JSON.stringify({ code, language, problemId }),
       })
       const result = await response.json()
-      setOutput(result.output || result.error || "Code executed successfully")
+      const timeStr = result.executionTime ? ` (${result.executionTime}ms)` : ""
+      setRunOutput(result.output || result.error || "Code executed successfully")
+      setRunOutput((prev) => prev + (result.executionTime ? `\n\n⏱ Completed in ${result.executionTime}ms` : ""))
       onRun?.(code)
     } catch {
-      setOutput("Error running code")
+      setRunOutput("Error: could not connect to the execution server.")
     } finally {
       setIsRunning(false)
     }
@@ -71,18 +88,21 @@ export function CodeEditor({ language, initialCode, problemId, onRun, onSubmit }
 
   const handleSubmit = async () => {
     setIsSubmitting(true)
+    setActiveTab("results")
+    setSubmitResult(null)
     try {
       const response = await fetch("/api/code/submit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code, language, problemId }),
       })
-      const result: SubmitResult & { message?: string } = await response.json()
-      setOutput(result.message || "Solution submitted successfully")
+      const result: SubmitResult = await response.json()
+      setSubmitResult(result)
       onSubmit?.(code, result)
     } catch {
-      setOutput("Error submitting solution")
-      onSubmit?.(code, { success: false })
+      const errResult = { success: false, message: "Error: could not connect to the execution server." }
+      setSubmitResult(errResult)
+      onSubmit?.(code, errResult)
     } finally {
       setIsSubmitting(false)
     }
@@ -90,13 +110,16 @@ export function CodeEditor({ language, initialCode, problemId, onRun, onSubmit }
 
   return (
     <div className="h-full flex flex-col">
-      <Tabs defaultValue="code" className="flex-1 flex flex-col">
-        <TabsList className="grid w-full grid-cols-2 bg-gray-800 border-gray-700">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
+        <TabsList className="grid w-full grid-cols-3 bg-gray-800 border-gray-700">
           <TabsTrigger value="code" className="data-[state=active]:bg-blue-600">
             Code
           </TabsTrigger>
           <TabsTrigger value="output" className="data-[state=active]:bg-blue-600">
             Output
+          </TabsTrigger>
+          <TabsTrigger value="results" className="data-[state=active]:bg-blue-600">
+            Results
           </TabsTrigger>
         </TabsList>
 
@@ -113,11 +136,80 @@ export function CodeEditor({ language, initialCode, problemId, onRun, onSubmit }
         </TabsContent>
 
         <TabsContent value="output" className="flex-1 mt-4">
-          <Card className="h-full bg-gray-900 border-gray-700">
-            <pre className="w-full h-full p-4 text-gray-100 font-mono text-sm whitespace-pre-wrap overflow-auto">
-              {output || "No output yet. Run your code to see results."}
+          <Card className="h-full bg-gray-900 border-gray-700 overflow-auto">
+            <pre className="w-full h-full p-4 text-gray-100 font-mono text-sm whitespace-pre-wrap">
+              {runOutput || "No output yet. Click Run to execute your code."}
             </pre>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="results" className="flex-1 mt-4 overflow-auto">
+          {!submitResult ? (
+            <Card className="h-full bg-gray-900 border-gray-700">
+              <div className="p-4 text-gray-400 font-mono text-sm">
+                {isSubmitting ? "Judging your submission..." : "No submission yet. Click Submit to test your solution."}
+              </div>
+            </Card>
+          ) : (
+            <div className="space-y-3">
+              <Card className={`border ${submitResult.success ? "border-green-500/40 bg-green-950/20" : "border-red-500/40 bg-red-950/20"}`}>
+                <div className="p-4 flex items-center gap-3">
+                  {submitResult.success ? (
+                    <CheckCircle className="h-5 w-5 text-green-500 shrink-0" />
+                  ) : (
+                    <XCircle className="h-5 w-5 text-red-500 shrink-0" />
+                  )}
+                  <div>
+                    <p className={`font-semibold ${submitResult.success ? "text-green-400" : "text-red-400"}`}>
+                      {submitResult.message}
+                    </p>
+                    {submitResult.totalTests != null && (
+                      <p className="text-sm text-gray-400 mt-0.5">
+                        {submitResult.passedTests}/{submitResult.totalTests} test cases passed
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </Card>
+
+              {submitResult.testCases && submitResult.testCases.length > 0 && (
+                <div className="space-y-2">
+                  {submitResult.testCases.map((tc, i) => (
+                    <Card key={i} className={`border ${tc.passed ? "border-green-500/20 bg-gray-900" : "border-red-500/30 bg-gray-900"}`}>
+                      <div className="p-3 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-medium text-gray-200">
+                            Case {i + 1}: {tc.description}
+                          </span>
+                          <Badge className={tc.passed ? "bg-green-500/15 text-green-400 border-green-500/30" : "bg-red-500/15 text-red-400 border-red-500/30"}>
+                            {tc.passed ? "Passed" : "Failed"}
+                          </Badge>
+                        </div>
+                        {!tc.passed && (
+                          <div className="font-mono text-xs space-y-1">
+                            <div className="text-gray-400">
+                              <span className="text-gray-500">Input: </span>{tc.input}
+                            </div>
+                            <div className="text-green-400">
+                              <span className="text-gray-500">Expected: </span>{tc.expected}
+                            </div>
+                            <div className="text-red-400">
+                              <span className="text-gray-500">Got: </span>{tc.actual}
+                            </div>
+                            {tc.stderr && (
+                              <div className="text-yellow-400 mt-1 whitespace-pre-wrap">
+                                <span className="text-gray-500">Error: </span>{tc.stderr}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </TabsContent>
       </Tabs>
 
@@ -132,7 +224,7 @@ export function CodeEditor({ language, initialCode, problemId, onRun, onSubmit }
           className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
         >
           <Send className="w-4 h-4 mr-2" />
-          {isSubmitting ? "Submitting..." : "Submit"}
+          {isSubmitting ? "Judging..." : "Submit"}
         </Button>
       </div>
     </div>
