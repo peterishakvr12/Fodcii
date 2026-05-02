@@ -1,3 +1,11 @@
+/**
+ * submission-worker.ts — Async submission processing queue
+ *
+ * In-process queue (JobQueue<T>) is the default.
+ * When REDIS_URL is set, swap to BullMQ for horizontal scaling
+ * (see bullmq-worker.ts for the standalone worker binary).
+ */
+
 import { JobQueue } from "./job-queue.js";
 import { judgeSubmission } from "./judge.js";
 import {
@@ -16,68 +24,88 @@ export interface SubmissionJobData {
   code: string;
   language: string;
   userId: number | null;
+  enqueuedAt: number;        // epoch ms — used to compute queue latency
 }
 
 async function processSubmission(job: Job<SubmissionJobData>): Promise<void> {
-  const { submissionId, problemId, code, language, userId } = job.data;
+  const { submissionId, problemId, code, language, userId, enqueuedAt } = job.data;
+  const queueTimeMs = Date.now() - enqueuedAt;
 
-  logger.info({ submissionId, problemId, language, jobId: job.id }, "Processing submission");
+  logger.info(
+    { submissionId, problemId, language, userId, queueTimeMs, jobId: job.id },
+    "Processing submission",
+  );
 
   await updateSubmissionStatus(submissionId, "processing");
 
-  const judgment = await judgeSubmission(problemId, language, code);
+  // ── Judge ────────────────────────────────────────────────────────────────
+  const judgment = await judgeSubmission(problemId, language, code, { failFast: true });
 
-  const { passedTests, totalTests, success } = judgment;
-  const status = success ? "accepted" : "wrong_answer";
+  const {
+    results,
+    passedTests,
+    totalTests,
+    overallVerdict: status,
+    totalExecutionTimeMs,
+  } = judgment;
 
-  const testCasesJson = judgment.results.map((r) => ({
-    description: r.description,
-    input: r.input,
-    expected: r.expected,
-    actual: r.actual,
-    passed: r.passed,
-    stderr: r.stderr,
+  const testCasesJson = results.map((r) => ({
+    description:    r.description,
+    input:          r.input,
+    expected:       r.expected,
+    actual:         r.actual,
+    passed:         r.passed,
+    verdict:        r.verdict,
+    executionTimeMs: r.executionTimeMs,
+    stderr:         r.stderr,
   }));
 
-  // 1. Persist result to DB
+  // ── Persist result ───────────────────────────────────────────────────────
   await updateSubmissionResult(submissionId, {
     status,
     passedTests,
     totalTests,
+    executionTime: totalExecutionTimeMs,
     testCasesJson,
   });
 
-  // 2. Update ranking + problem stats atomically
+  // ── Update ranking + problem stats ───────────────────────────────────────
   try {
     const { isFirstSolve, pointsAwarded } = await recordCompletedSubmission({
-      userId,         // null for guests — only problem stats updated
+      userId,
       problemId,
       status,
-      executionTime: null,
+      executionTime: totalExecutionTimeMs,
     });
 
     if (isFirstSolve) {
       logger.info(
         { submissionId, userId, problemId, pointsAwarded },
-        "First solve — leaderboard updated"
+        "First solve — leaderboard updated",
       );
     }
   } catch (err) {
     logger.error({ err, submissionId, userId }, "Ranking update failed (non-fatal)");
   }
 
-  // 3. Record API metric
+  // ── Metrics ──────────────────────────────────────────────────────────────
   metricsStore.recordSubmission();
+  metricsStore.recordJudgment({
+    language,
+    status,
+    executionTimeMs: totalExecutionTimeMs,
+    queueTimeMs,
+  });
 
-  // 4. Invalidate caches
+  // ── Cache invalidation ───────────────────────────────────────────────────
   cache.invalidateByTag(TAGS.PROBLEMS);
-  if (success) {
+  if (status === "accepted") {
     cache.invalidateByTag(TAGS.LEADERBOARD);
   }
 
   logger.info(
-    { submissionId, status, passedTests, totalTests, jobId: job.id },
-    "Submission processed"
+    { submissionId, status, passedTests, totalTests, totalExecutionTimeMs, jobId: job.id },
+    "Submission processed",
   );
 }
 

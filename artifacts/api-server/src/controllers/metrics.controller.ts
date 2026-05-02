@@ -36,6 +36,8 @@ export function getLiveMetrics(_req: Request, res: Response) {
     },
     submissions: {
       total: reqSnapshot.submissionsCount,
+      avgQueueMs: reqSnapshot.avgQueueMs,
+      byLanguage: reqSnapshot.byLanguage,
     },
     cache: cacheStats,
     circuitBreaker,

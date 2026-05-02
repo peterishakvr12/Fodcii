@@ -8,6 +8,8 @@ export interface TestCaseResult {
   expected: string;
   actual: string;
   passed: boolean;
+  verdict?: string;
+  executionTimeMs?: number;
   stderr?: string;
 }
 

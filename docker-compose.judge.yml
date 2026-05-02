@@ -1,0 +1,109 @@
+# docker-compose.judge.yml — Production distributed judge stack
+#
+# Services:
+#   api      — Main HTTP API (Express)
+#   worker   — BullMQ judge worker (scalable horizontally)
+#   redis    — Job queue backbone
+#   redis-ui — Bull-Board dashboard (optional)
+#
+# Usage:
+#   docker compose -f docker-compose.judge.yml up -d
+#   docker compose -f docker-compose.judge.yml scale worker=4
+
+version: "3.9"
+
+services:
+
+  # ── Redis (job queue) ──────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: >
+      redis-server
+        --maxmemory 256mb
+        --maxmemory-policy allkeys-lru
+        --appendonly yes
+        --appendfsync everysec
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - judge-net
+
+  # ── API server ─────────────────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: docker/judge-worker/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV:      production
+      DATABASE_URL:  ${DATABASE_URL}
+      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:-""}
+      REDIS_URL:     redis://redis:6379
+    ports:
+      - "${PORT:-3000}:3000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - judge-net
+    command: ["node", "artifacts/api-server/dist/index.mjs"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/health', r => process.exit(r.statusCode === 200 ? 0 : 1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Judge worker (horizontally scalable) ───────────────────────────────────
+  worker:
+    build:
+      context: .
+      dockerfile: docker/judge-worker/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV:        production
+      DATABASE_URL:    ${DATABASE_URL}
+      REDIS_URL:       redis://redis:6379
+      WORKER_CONCURRENCY: "4"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - judge-net
+    # Each worker runs in its own process group for isolation
+    # Scale with: docker compose scale worker=N
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1G
+
+  # ── Bull-Board (optional queue dashboard) ─────────────────────────────────
+  redis-ui:
+    image: ghcr.io/felixmosh/bull-board:latest
+    restart: unless-stopped
+    environment:
+      REDIS_HOST:     redis
+      REDIS_PORT:     "6379"
+      BULL_PREFIX:    "bull"
+    ports:
+      - "3001:3000"
+    depends_on:
+      - redis
+    networks:
+      - judge-net
+    profiles:
+      - monitoring
+
+volumes:
+  redis-data:
+
+networks:
+  judge-net:
+    driver: bridge

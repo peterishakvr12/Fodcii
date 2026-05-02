@@ -2,12 +2,15 @@ import { Router } from "express";
 import { optionalAuth } from "../middleware/auth.js";
 import { resolveDbUser } from "../middleware/clerk-db-user.js";
 import { submitRateLimit } from "../middleware/rate-limit.js";
-import { executeCode } from "../lib/executor.js";
+import { executeCode, SUPPORTED_LANGUAGES } from "../lib/executor.js";
 import { createPendingSubmission } from "../services/submission.service.js";
 import { submissionQueue } from "../lib/submission-worker.js";
 import { logger } from "../lib/logger.js";
 
 const router = Router();
+
+// Languages allowed in the free /run endpoint (no Java — JVM cold-start is slow)
+const RUN_LANGUAGES = ["python", "javascript", "cpp"] as const;
 
 router.post("/code/run", async (req, res) => {
   const { code, language } = req.body;
@@ -17,18 +20,21 @@ router.post("/code/run", async (req, res) => {
     return;
   }
 
-  const supportedLanguages = ["python", "javascript", "cpp"];
-  if (!supportedLanguages.includes(language)) {
-    res.status(400).json({ error: `Unsupported language: ${language}` });
+  if (!RUN_LANGUAGES.includes(language as typeof RUN_LANGUAGES[number])) {
+    res.status(400).json({ error: `Unsupported language for /run: ${language}. Use: ${RUN_LANGUAGES.join(", ")}` });
     return;
   }
 
   const result = await executeCode(language, code);
 
   let output: string;
-  if (result.timedOut) {
-    output = "⏱ Time Limit Exceeded (10s)\n";
+  if (result.compileError) {
+    output = `Compile Error:\n${result.stderr}`;
+  } else if (result.timedOut || result.cpuLimitHit) {
+    output = "⏱ Time Limit Exceeded\n";
     if (result.stdout) output += result.stdout;
+  } else if (result.outputLimitHit) {
+    output = "⚠ Output Limit Exceeded (64 KB)\n" + result.stdout;
   } else if (result.exitCode !== 0) {
     output = "";
     if (result.stdout) output += result.stdout + "\n";
@@ -41,7 +47,7 @@ router.post("/code/run", async (req, res) => {
   }
 
   res.json({
-    success: result.exitCode === 0 && !result.timedOut,
+    success: result.exitCode === 0 && !result.timedOut && !result.cpuLimitHit && !result.compileError,
     output,
     executionTime: result.executionTimeMs,
     memoryUsed: null,
@@ -56,9 +62,10 @@ router.post("/code/submit", optionalAuth, resolveDbUser, submitRateLimit, async 
     return;
   }
 
-  const supportedLanguages = ["python", "javascript", "cpp"];
-  if (!supportedLanguages.includes(language)) {
-    res.status(400).json({ error: `Unsupported language: ${language}` });
+  if (!SUPPORTED_LANGUAGES.includes(language as typeof SUPPORTED_LANGUAGES[number])) {
+    res.status(400).json({
+      error: `Unsupported language: ${language}. Supported: ${SUPPORTED_LANGUAGES.join(", ")}`,
+    });
     return;
   }
 
@@ -83,11 +90,12 @@ router.post("/code/submit", optionalAuth, resolveDbUser, submitRateLimit, async 
     code,
     language,
     userId,
+    enqueuedAt: Date.now(),
   });
 
   logger.info(
     { submissionId, problemId: parsedProblemId, language, userId, requestId: req.requestId },
-    "Submission enqueued"
+    "Submission enqueued",
   );
 
   res.status(202).json({
@@ -95,6 +103,7 @@ router.post("/code/submit", optionalAuth, resolveDbUser, submitRateLimit, async 
     status: "pending",
     message: "Submission queued for evaluation",
     pollUrl: `/api/submissions/${submissionId}/status`,
+    supportedLanguages: SUPPORTED_LANGUAGES,
   });
 });
 
