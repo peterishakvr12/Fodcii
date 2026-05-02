@@ -1,4 +1,4 @@
-import { pgTable, serial, integer, text, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, text, jsonb, timestamp } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { usersTable } from "./users";
@@ -17,6 +17,9 @@ export const submissionsTable = pgTable("submissions", {
   passedTests: integer("passed_tests").notNull().default(0),
   totalTests: integer("total_tests").notNull().default(0),
   executionTime: integer("execution_time"),
+  testCasesJson: jsonb("test_cases_json"),
+  processedAt: timestamp("processed_at"),
+  errorMessage: text("error_message"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

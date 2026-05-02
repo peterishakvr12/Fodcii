@@ -1,9 +1,9 @@
-import { useState } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Play, Send, CheckCircle, XCircle } from "lucide-react"
+import { Play, Send, CheckCircle, XCircle, Loader2 } from "lucide-react"
 
 interface TestCaseResult {
   description: string
@@ -56,13 +56,25 @@ int main() {
 console.log(solution());`,
 }
 
+const POLL_INTERVAL_MS = 600
+const MAX_POLL_ATTEMPTS = 60
+
 export function CodeEditor({ language, initialCode, problemId, onRun, onSubmit }: CodeEditorProps) {
   const [code, setCode] = useState(initialCode || languageTemplates[language] || "")
   const [runOutput, setRunOutput] = useState("")
   const [submitResult, setSubmitResult] = useState<SubmitResult | null>(null)
   const [isRunning, setIsRunning] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [submitStatus, setSubmitStatus] = useState<string>("")
   const [activeTab, setActiveTab] = useState("code")
+  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pollCountRef = useRef(0)
+
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearTimeout(pollRef.current)
+    }
+  }, [])
 
   const handleRun = async () => {
     setIsRunning(true)
@@ -75,9 +87,10 @@ export function CodeEditor({ language, initialCode, problemId, onRun, onSubmit }
         body: JSON.stringify({ code, language, problemId }),
       })
       const result = await response.json()
-      const timeStr = result.executionTime ? ` (${result.executionTime}ms)` : ""
-      setRunOutput(result.output || result.error || "Code executed successfully")
-      setRunOutput((prev) => prev + (result.executionTime ? `\n\n⏱ Completed in ${result.executionTime}ms` : ""))
+      setRunOutput(
+        (result.output || result.error || "Code executed successfully") +
+        (result.executionTime ? `\n\n⏱ Completed in ${result.executionTime}ms` : "")
+      )
       onRun?.(code)
     } catch {
       setRunOutput("Error: could not connect to the execution server.")
@@ -86,25 +99,90 @@ export function CodeEditor({ language, initialCode, problemId, onRun, onSubmit }
     }
   }
 
+  const pollSubmissionStatus = (submissionId: number) => {
+    pollCountRef.current = 0
+
+    const poll = async () => {
+      if (pollCountRef.current >= MAX_POLL_ATTEMPTS) {
+        setIsSubmitting(false)
+        setSubmitStatus("")
+        setSubmitResult({ success: false, message: "Judging timed out. Please try again." })
+        return
+      }
+
+      pollCountRef.current++
+
+      try {
+        const res = await fetch(`/api/submissions/${submissionId}/status`)
+        const data = await res.json()
+
+        if (data.status === "processing") {
+          setSubmitStatus("Evaluating your code…")
+        } else if (data.status === "pending") {
+          setSubmitStatus("Queued for evaluation…")
+        }
+
+        if (data.isDone) {
+          const result: SubmitResult = {
+            success: data.success,
+            message: data.message,
+            passedTests: data.passedTests,
+            totalTests: data.totalTests,
+            testCases: data.testCases ?? undefined,
+          }
+          setSubmitResult(result)
+          setIsSubmitting(false)
+          setSubmitStatus("")
+          onSubmit?.(code, result)
+          return
+        }
+      } catch {
+        // network hiccup — keep polling
+      }
+
+      pollRef.current = setTimeout(poll, POLL_INTERVAL_MS)
+    }
+
+    poll()
+  }
+
   const handleSubmit = async () => {
+    if (pollRef.current) clearTimeout(pollRef.current)
     setIsSubmitting(true)
     setActiveTab("results")
     setSubmitResult(null)
+    setSubmitStatus("Submitting…")
+
     try {
       const response = await fetch("/api/code/submit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code, language, problemId }),
       })
-      const result: SubmitResult = await response.json()
-      setSubmitResult(result)
-      onSubmit?.(code, result)
+      const data = await response.json()
+
+      if (data.submissionId) {
+        setSubmitStatus("Queued for evaluation…")
+        pollSubmissionStatus(data.submissionId)
+      } else {
+        const result: SubmitResult = {
+          success: data.success ?? false,
+          message: data.message ?? data.error,
+          passedTests: data.passedTests,
+          totalTests: data.totalTests,
+          testCases: data.testCases,
+        }
+        setSubmitResult(result)
+        setIsSubmitting(false)
+        setSubmitStatus("")
+        onSubmit?.(code, result)
+      }
     } catch {
       const errResult = { success: false, message: "Error: could not connect to the execution server." }
       setSubmitResult(errResult)
-      onSubmit?.(code, errResult)
-    } finally {
       setIsSubmitting(false)
+      setSubmitStatus("")
+      onSubmit?.(code, errResult)
     }
   }
 
@@ -144,10 +222,17 @@ export function CodeEditor({ language, initialCode, problemId, onRun, onSubmit }
         </TabsContent>
 
         <TabsContent value="results" className="flex-1 mt-4 overflow-auto">
-          {!submitResult ? (
+          {isSubmitting && !submitResult ? (
+            <Card className="h-full bg-gray-900 border-gray-700">
+              <div className="p-6 flex flex-col items-center justify-center gap-3 text-gray-300">
+                <Loader2 className="h-8 w-8 animate-spin text-blue-400" />
+                <p className="font-mono text-sm">{submitStatus || "Submitting…"}</p>
+              </div>
+            </Card>
+          ) : !submitResult ? (
             <Card className="h-full bg-gray-900 border-gray-700">
               <div className="p-4 text-gray-400 font-mono text-sm">
-                {isSubmitting ? "Judging your submission..." : "No submission yet. Click Submit to test your solution."}
+                No submission yet. Click Submit to test your solution.
               </div>
             </Card>
           ) : (
@@ -223,8 +308,8 @@ export function CodeEditor({ language, initialCode, problemId, onRun, onSubmit }
           disabled={isSubmitting}
           className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
         >
-          <Send className="w-4 h-4 mr-2" />
-          {isSubmitting ? "Judging..." : "Submit"}
+          {isSubmitting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Send className="w-4 h-4 mr-2" />}
+          {isSubmitting ? submitStatus || "Submitting..." : "Submit"}
         </Button>
       </div>
     </div>

@@ -1,6 +1,9 @@
 import type { Request, Response } from "express";
 import { pool } from "@workspace/db";
 import { metricsStore } from "../lib/metrics-store.js";
+import { submissionQueue } from "../lib/submission-worker.js";
+import { dbCircuitBreaker } from "../lib/circuit-breaker.js";
+import { cache } from "../lib/cache.js";
 
 export async function healthCheck(_req: Request, res: Response) {
   const checks: Record<string, unknown> = {};
@@ -8,11 +11,18 @@ export async function healthCheck(_req: Request, res: Response) {
 
   const dbStart = Date.now();
   try {
-    await pool.query("SELECT 1");
-    checks.database = {
-      status: "healthy",
-      latencyMs: Date.now() - dbStart,
-    };
+    const cbState = dbCircuitBreaker.getStats();
+    if (cbState.state === "open") {
+      overallStatus = "unhealthy";
+      checks.database = { status: "unhealthy", reason: "Circuit breaker OPEN", circuitBreaker: cbState };
+    } else {
+      await pool.query("SELECT 1");
+      checks.database = {
+        status: "healthy",
+        latencyMs: Date.now() - dbStart,
+        circuitBreaker: cbState,
+      };
+    }
   } catch (err) {
     overallStatus = "unhealthy";
     checks.database = {
@@ -29,9 +39,25 @@ export async function healthCheck(_req: Request, res: Response) {
     averageResponseTimeMs: snap.averageResponseTimeMs,
   };
 
+  const queueStats = submissionQueue.getStats();
+  checks.queue = {
+    status: "healthy",
+    depth: queueStats.pending,
+    processing: queueStats.processing,
+    completed: queueStats.completed,
+    failed: queueStats.failed,
+    avgProcessingTimeMs: queueStats.avgProcessingTimeMs,
+  };
+
+  checks.cache = {
+    status: "healthy",
+    ...cache.getStats(),
+  };
+
   checks.judgeEngine = {
-    status: "simulated",
-    note: "Judge engine is in mock mode — real execution engine not yet connected",
+    status: "active",
+    mode: "in-process",
+    note: "Judge engine runs within the API process. Scale via worker concurrency setting.",
   };
 
   const statusCode = overallStatus === "unhealthy" ? 503 : 200;

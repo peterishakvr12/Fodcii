@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import { z } from "zod";
 import { listProblems, getProblemById, createProblem } from "../services/problems.service.js";
+import { cache, TTL, TAGS } from "../lib/cache.js";
 
 const createProblemSchema = z.object({
   title: z.string().min(1).max(200),
@@ -23,9 +24,20 @@ const createProblemSchema = z.object({
 });
 
 export async function getProblems(req: Request, res: Response) {
+  const { level, category, difficulty, search } = req.query as Record<string, string | undefined>;
+
+  const cacheKey = `problems:list:${level ?? ""}:${category ?? ""}:${difficulty ?? ""}:${search ?? ""}`;
+  const cached = cache.get<unknown>(cacheKey);
+  if (cached) {
+    res.set("X-Cache", "HIT");
+    res.json({ problems: cached });
+    return;
+  }
+
   try {
-    const { level, category, difficulty, search } = req.query as Record<string, string | undefined>;
     const problems = await listProblems({ level, category, difficulty, search });
+    cache.set(cacheKey, problems, TTL.PROBLEMS_LIST, [TAGS.PROBLEMS]);
+    res.set("X-Cache", "MISS");
     res.json({ problems });
   } catch (err: unknown) {
     const e = err as { message?: string };
@@ -40,12 +52,22 @@ export async function getProblem(req: Request, res: Response) {
     return;
   }
 
+  const cacheKey = `problems:detail:${id}`;
+  const cached = cache.get<unknown>(cacheKey);
+  if (cached) {
+    res.set("X-Cache", "HIT");
+    res.json({ problem: cached });
+    return;
+  }
+
   try {
     const problem = await getProblemById(id);
     if (!problem) {
       res.status(404).json({ error: "Problem not found" });
       return;
     }
+    cache.set(cacheKey, problem, TTL.PROBLEM_DETAIL, [TAGS.PROBLEMS]);
+    res.set("X-Cache", "MISS");
     res.json({ problem });
   } catch (err: unknown) {
     const e = err as { message?: string };
@@ -62,6 +84,7 @@ export async function createProblemHandler(req: Request, res: Response) {
 
   try {
     const problem = await createProblem(parsed.data);
+    cache.invalidateByTag(TAGS.PROBLEMS);
     res.status(201).json({ problem });
   } catch (err: unknown) {
     const e = err as { message?: string };

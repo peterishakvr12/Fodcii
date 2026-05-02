@@ -1,0 +1,135 @@
+Prompt: Fodci Scaling & Distributed System Upgrade
+
+You are working inside the existing Fodci backend (Node.js + Express + PostgreSQL).
+
+The system already has:
+
+Auth system (JWT)
+Problem system
+Judge engine (basic)
+Observability (logs, metrics, tracing)
+Security testing module
+
+Now your goal is to transform Fodci into a scalable distributed backend system capable of handling production-level traffic (100K+ submissions/day).
+
+1) Distributed Submission Pipeline (CRITICAL)
+
+Refactor submission flow into a queue-based async system:
+
+Requirements:
+Replace direct judge execution with a job queue system
+Use Redis-based queue (BullMQ or equivalent)
+Flow:
+API receives submission
+Store submission in DB with status = "PENDING"
+Push job into queue
+Worker service processes:
+pulls job
+executes judge engine
+updates DB with result (ACCEPTED / WRONG / TLE / REJECTED)
+Must support:
+retry failed jobs (max 3 retries)
+dead-letter queue for failed submissions
+job status tracking endpoint:
+GET /api/submissions/:id/status
+2) Horizontal Scaling Architecture
+
+Design system so it can run on multiple instances:
+
+Requirements:
+Stateless API server (no in-memory dependency)
+Redis used for:
+queue
+caching
+rate limiting
+PostgreSQL as single source of truth
+Add:
+graceful shutdown handling (finish active jobs before exit)
+health check must include queue depth
+3) Judge Engine Scaling (Worker System)
+
+Move judge engine into separate worker layer:
+
+Requirements:
+Separate worker/ service
+Workers should:
+fetch test cases in batches
+run sandboxed execution
+enforce time + memory limits
+support multiple workers running in parallel
+Add:
+concurrency control (max N jobs per worker)
+isolation per submission execution
+4) Caching Layer (Performance Boost)
+
+Add Redis caching for:
+
+GET /api/problems
+GET /api/problems/:id
+leaderboard queries
+Rules:
+cache TTL: 60–300 seconds
+invalidate cache on:
+new problem creation
+new accepted submission
+5) Rate Limiting Upgrade (Production Grade)
+
+Replace basic rate limiting with:
+
+Redis distributed rate limiter
+per-user + per-IP limits
+separate limits for:
+auth endpoints (strict)
+submissions (medium)
+read endpoints (loose)
+
+Return proper:
+
+HTTP 429
+Retry-After header
+6) System Observability Upgrade
+
+Extend existing observability:
+
+Add:
+queue metrics:
+pending jobs
+processing time
+failed jobs count
+worker metrics:
+CPU usage per worker
+jobs/sec
+expose:
+GET /api/metrics/live
+7) Failure Resilience
+
+System must handle:
+
+Redis down → fallback to DB queue (graceful degradation)
+worker crash → job requeue
+DB slow → circuit breaker triggers
+8) Performance Target
+
+After implementation:
+
+API latency < 100ms (read endpoints)
+submission enqueue < 20ms
+judge processing fully async
+system should handle 1000 concurrent submissions safely
+9) Engineering Constraints
+Keep existing architecture style (services/controllers/routes)
+TypeScript preferred if already used
+No breaking changes to Auth or Problem system
+Everything must remain backward compatible
+10) Optional (if possible)
+Add Docker support for:
+API server
+worker service
+Redis
+PostgreSQL
+Provide docker-compose for full system run
+🎯 Final Goal
+
+Turn Fodci into:
+
+A scalable distributed online judge system capable of production-level load, with async processing, worker-based judging, caching, and resilience.

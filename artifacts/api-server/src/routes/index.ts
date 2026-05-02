@@ -7,6 +7,7 @@ import codeRouter from "./code.js";
 import userRouter from "./user.js";
 import metricsRouter from "./metrics.js";
 import securityRouter from "./security.js";
+import submissionsRouter from "./submissions.js";
 
 const router: IRouter = Router();
 
@@ -18,5 +19,6 @@ router.use(codeRouter);
 router.use(userRouter);
 router.use(metricsRouter);
 router.use(securityRouter);
+router.use(submissionsRouter);
 
 export default router;

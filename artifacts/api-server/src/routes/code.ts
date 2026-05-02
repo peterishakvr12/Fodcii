@@ -1,41 +1,42 @@
-import { Router } from "express"
-import { optionalAuth } from "../middleware/auth.js"
-import { recordSubmission } from "../services/problems.service.js"
-import { metricsStore } from "../lib/metrics-store.js"
-import { executeCode } from "../lib/executor.js"
-import { judgeSubmission } from "../lib/judge.js"
+import { Router } from "express";
+import { optionalAuth } from "../middleware/auth.js";
+import { submitRateLimit } from "../middleware/rate-limit.js";
+import { executeCode } from "../lib/executor.js";
+import { createPendingSubmission } from "../services/submission.service.js";
+import { submissionQueue } from "../lib/submission-worker.js";
+import { logger } from "../lib/logger.js";
 
-const router = Router()
+const router = Router();
 
 router.post("/code/run", async (req, res) => {
-  const { code, language } = req.body
+  const { code, language } = req.body;
 
   if (!code || !language) {
-    res.status(400).json({ error: "code and language are required" })
-    return
+    res.status(400).json({ error: "code and language are required" });
+    return;
   }
 
-  const supportedLanguages = ["python", "javascript", "cpp"]
+  const supportedLanguages = ["python", "javascript", "cpp"];
   if (!supportedLanguages.includes(language)) {
-    res.status(400).json({ error: `Unsupported language: ${language}` })
-    return
+    res.status(400).json({ error: `Unsupported language: ${language}` });
+    return;
   }
 
-  const result = await executeCode(language, code)
+  const result = await executeCode(language, code);
 
-  let output: string
+  let output: string;
   if (result.timedOut) {
-    output = "⏱ Time Limit Exceeded (10s)\n"
-    if (result.stdout) output += result.stdout
+    output = "⏱ Time Limit Exceeded (10s)\n";
+    if (result.stdout) output += result.stdout;
   } else if (result.exitCode !== 0) {
-    output = ""
-    if (result.stdout) output += result.stdout + "\n"
-    if (result.stderr) output += result.stderr
-    if (!output) output = `Process exited with code ${result.exitCode}`
+    output = "";
+    if (result.stdout) output += result.stdout + "\n";
+    if (result.stderr) output += result.stderr;
+    if (!output) output = `Process exited with code ${result.exitCode}`;
   } else {
-    output = result.stdout
-    if (result.stderr) output += (output ? "\n" : "") + result.stderr
-    if (!output) output = "(no output)"
+    output = result.stdout;
+    if (result.stderr) output += (output ? "\n" : "") + result.stderr;
+    if (!output) output = "(no output)";
   }
 
   res.json({
@@ -43,76 +44,57 @@ router.post("/code/run", async (req, res) => {
     output,
     executionTime: result.executionTimeMs,
     memoryUsed: null,
-  })
-})
+  });
+});
 
-router.post("/code/submit", optionalAuth, async (req, res) => {
-  const { code, language, problemId } = req.body
+router.post("/code/submit", optionalAuth, submitRateLimit, async (req, res) => {
+  const { code, language, problemId } = req.body;
 
   if (!code || !language || !problemId) {
-    res.status(400).json({ error: "code, language, and problemId are required" })
-    return
+    res.status(400).json({ error: "code, language, and problemId are required" });
+    return;
   }
 
-  const supportedLanguages = ["python", "javascript", "cpp"]
+  const supportedLanguages = ["python", "javascript", "cpp"];
   if (!supportedLanguages.includes(language)) {
-    res.status(400).json({ error: `Unsupported language: ${language}` })
-    return
+    res.status(400).json({ error: `Unsupported language: ${language}` });
+    return;
   }
 
-  const id = parseInt(String(problemId), 10)
-  if (isNaN(id)) {
-    res.status(400).json({ error: "Invalid problemId" })
-    return
+  const parsedProblemId = parseInt(String(problemId), 10);
+  if (isNaN(parsedProblemId)) {
+    res.status(400).json({ error: "Invalid problemId" });
+    return;
   }
 
-  const judgment = await judgeSubmission(id, language, code)
+  const userId = req.user?.sub ?? null;
 
-  if (judgment.totalTests === 0) {
-    res.status(404).json({ error: "No test cases found for this problem" })
-    return
-  }
+  const submissionId = await createPendingSubmission({
+    userId,
+    problemId: parsedProblemId,
+    code,
+    language,
+  });
 
-  const { passedTests, totalTests, success } = judgment
-  const status = success ? "accepted" : "wrong_answer"
-  const userId = req.user?.sub ?? null
+  submissionQueue.enqueue({
+    submissionId,
+    problemId: parsedProblemId,
+    code,
+    language,
+    userId,
+  });
 
-  try {
-    await recordSubmission({
-      userId,
-      problemId: id,
-      code,
-      language,
-      status,
-      passedTests,
-      totalTests,
-      executionTime: null,
-    })
-    metricsStore.recordSubmission()
-  } catch {
-    // non-fatal — still return result even if DB write fails
-  }
+  logger.info(
+    { submissionId, problemId: parsedProblemId, language, userId, requestId: req.requestId },
+    "Submission enqueued"
+  );
 
-  const testCases = judgment.results.map((r) => ({
-    description: r.description,
-    input: r.input,
-    expected: r.expected,
-    actual: r.actual,
-    passed: r.passed,
-    stderr: r.stderr,
-  }))
+  res.status(202).json({
+    submissionId,
+    status: "pending",
+    message: "Submission queued for evaluation",
+    pollUrl: `/api/submissions/${submissionId}/status`,
+  });
+});
 
-  res.json({
-    success,
-    passedTests,
-    totalTests,
-    testCases,
-    executionTime: null,
-    memoryUsed: null,
-    message: success
-      ? "Congratulations! All test cases passed."
-      : `${passedTests}/${totalTests} test cases passed. Keep trying!`,
-  })
-})
-
-export default router
+export default router;
