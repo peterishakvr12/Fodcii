@@ -31,6 +31,8 @@ export interface SandboxResult {
   signal: string | null;
   timedOut: boolean;
   cpuLimitHit: boolean;
+  fileSizeLimitHit: boolean;
+  outputTruncated: boolean;
   executionTimeMs: number;
 }
 
@@ -116,12 +118,25 @@ export function runSandboxed(
     let stdout = "";
     let stderr = "";
     let timedOut = false;
+    let outputTruncated = false;
 
     child.stdout.on("data", (chunk: Buffer) => {
-      stdout = (stdout + chunk.toString()).slice(-o.maxOutputBytes);
+      const combined = stdout + chunk.toString();
+      if (combined.length > o.maxOutputBytes) {
+        outputTruncated = true;
+        stdout = combined.slice(-o.maxOutputBytes);
+      } else {
+        stdout = combined;
+      }
     });
     child.stderr.on("data", (chunk: Buffer) => {
-      stderr = (stderr + chunk.toString()).slice(-o.maxOutputBytes);
+      const combined = stderr + chunk.toString();
+      if (combined.length > o.maxOutputBytes) {
+        outputTruncated = true;
+        stderr = combined.slice(-o.maxOutputBytes);
+      } else {
+        stderr = combined;
+      }
     });
 
     const killGroup = () => {
@@ -133,7 +148,8 @@ export function runSandboxed(
     child.on("close", (code, signal) => {
       clearTimeout(timer);
       const executionTimeMs = Date.now() - start;
-      const cpuLimitHit = signal === "SIGXCPU" || signal === "SIGXFSZ";
+      const cpuLimitHit = signal === "SIGXCPU";
+      const fileSizeLimitHit = signal === "SIGXFSZ";
 
       resolve({
         stdout: stdout.trimEnd(),
@@ -142,6 +158,8 @@ export function runSandboxed(
         signal: signal as string | null,
         timedOut,
         cpuLimitHit,
+        fileSizeLimitHit,
+        outputTruncated,
         executionTimeMs,
       });
     });
@@ -155,6 +173,8 @@ export function runSandboxed(
         signal: null,
         timedOut: false,
         cpuLimitHit: false,
+        fileSizeLimitHit: false,
+        outputTruncated: false,
         executionTimeMs: Date.now() - start,
       });
     });

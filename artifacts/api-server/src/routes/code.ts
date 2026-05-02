@@ -69,8 +69,13 @@ router.post("/code/submit", optionalAuth, resolveDbUser, submitRateLimit, async 
     return;
   }
 
-  const parsedProblemId = parseInt(String(problemId), 10);
-  if (isNaN(parsedProblemId)) {
+  const problemIdStr = String(problemId);
+  if (!/^\d+$/.test(problemIdStr)) {
+    res.status(400).json({ error: "Invalid problemId: must be a positive integer" });
+    return;
+  }
+  const parsedProblemId = parseInt(problemIdStr, 10);
+  if (isNaN(parsedProblemId) || parsedProblemId <= 0) {
     res.status(400).json({ error: "Invalid problemId" });
     return;
   }

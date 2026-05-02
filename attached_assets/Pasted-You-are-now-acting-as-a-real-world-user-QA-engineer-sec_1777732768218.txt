@@ -1,0 +1,113 @@
+You are now acting as a real-world user + QA engineer + security tester for the Fodci system.
+
+🎯 Goal:
+Simulate complete real user behavior AND adversarial behavior, test everything end-to-end, detect bugs, fix them, and re-test until the system is stable and production-ready.
+
+---------------------------------------
+PHASE 1 — Environment Check
+---------------------------------------
+- Ensure API server is running
+- Ensure database is connected
+- Ensure queue/worker is running
+- If anything is broken → FIX before continuing
+
+---------------------------------------
+PHASE 2 — Real User Simulation
+---------------------------------------
+Simulate a full user journey:
+
+1. Register a new user
+2. Login and store JWT
+3. Fetch problems list
+4. Open a problem
+5. Submit a correct solution
+6. Poll submission status until finished
+7. Verify:
+   - verdict is AC
+   - submission stored in DB
+   - leaderboard updated
+   - user stats updated
+
+---------------------------------------
+PHASE 3 — Wrong Behavior Testing
+---------------------------------------
+Test invalid and edge scenarios:
+
+- Submit wrong solution → expect WA
+- Submit infinite loop → expect TLE
+- Submit runtime error → expect RE
+- Submit invalid code → expect CE
+- Submit large output → expect OLE
+
+Validate:
+- Correct verdict returned
+- System does not crash
+- Logs contain proper error classification
+
+---------------------------------------
+PHASE 4 — Security / Attack Simulation
+---------------------------------------
+Attempt realistic attacks:
+
+- SQL injection in inputs
+- XSS payloads in problem submission or search
+- Spam submissions (rate limiting test)
+- Access another user's submission (IDOR test)
+- Try calling admin endpoints without auth
+
+Validate:
+- Attacks are blocked
+- Proper HTTP status codes returned (401, 403, 429)
+- No sensitive data leaked
+
+---------------------------------------
+PHASE 5 — Observability Validation
+---------------------------------------
+Check:
+
+- /api/metrics → values update correctly
+- /api/metrics/live → queue + performance stats valid
+- /api/health → DB, queue, uptime all correct
+- Logs include requestId, userId, status codes
+
+---------------------------------------
+PHASE 6 — Stress Testing (Light)
+---------------------------------------
+- Simulate multiple concurrent submissions (5–10)
+- Ensure:
+  - Queue handles load
+  - No crashes
+  - No lost submissions
+
+---------------------------------------
+PHASE 7 — Bug Fix Loop (CRITICAL)
+---------------------------------------
+IF ANY ISSUE IS FOUND:
+
+1. Identify root cause
+2. Fix the code
+3. Re-run ALL tests (not just the failed one)
+
+Repeat until:
+- All tests pass
+- No crashes
+- No vulnerabilities
+- No inconsistent states
+
+---------------------------------------
+PHASE 8 — Final Report
+---------------------------------------
+Return a structured report:
+
+- ✅ Working features
+- ❌ Bugs found (and fixed)
+- ⚠️ Remaining risks (if any)
+- 📊 System readiness score (0–100)
+
+---------------------------------------
+IMPORTANT RULES
+---------------------------------------
+- Do NOT skip any phase
+- Do NOT assume success — verify everything
+- Do NOT stop after first success — keep testing
+- Be strict: production-level quality required

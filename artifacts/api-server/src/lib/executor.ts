@@ -21,6 +21,7 @@ export interface ExecutionResult {
   exitCode: number;
   timedOut: boolean;
   cpuLimitHit: boolean;
+  fileSizeLimitHit: boolean;
   executionTimeMs: number;
   compileError: boolean;
   outputLimitHit: boolean;
@@ -46,16 +47,18 @@ function sanitize(text: string, ...ids: string[]): string {
 }
 
 function fromSandbox(r: SandboxResult, id: string): ExecutionResult {
-  const MAX_OUT_BYTES = MAX_OUT;
   return {
-    stdout:         sanitize(r.stdout, id),
-    stderr:         sanitize(r.stderr, id),
-    exitCode:       r.exitCode,
-    timedOut:       r.timedOut,
-    cpuLimitHit:    r.cpuLimitHit,
-    executionTimeMs: r.executionTimeMs,
-    compileError:   false,
-    outputLimitHit: r.stdout.length >= MAX_OUT_BYTES || r.stderr.length >= MAX_OUT_BYTES,
+    stdout:           sanitize(r.stdout, id),
+    stderr:           sanitize(r.stderr, id),
+    exitCode:         r.exitCode,
+    timedOut:         r.timedOut,
+    cpuLimitHit:      r.cpuLimitHit,
+    fileSizeLimitHit: r.fileSizeLimitHit,
+    executionTimeMs:  r.executionTimeMs,
+    compileError:     false,
+    // outputTruncated is set before trimEnd() so it's accurate even when
+    // trimEnd() reduces length to < MAX_OUT_BYTES
+    outputLimitHit:   r.outputTruncated || r.fileSizeLimitHit,
   };
 }
 
@@ -128,6 +131,7 @@ async function executeCpp(code: string): Promise<ExecutionResult> {
         exitCode: compile.exitCode,
         timedOut: compile.timedOut,
         cpuLimitHit: compile.cpuLimitHit,
+        fileSizeLimitHit: compile.fileSizeLimitHit,
         executionTimeMs: compile.executionTimeMs,
         compileError: true,
         outputLimitHit: false,
@@ -166,7 +170,7 @@ async function executeJava(code: string): Promise<ExecutionResult> {
         compile.exitCode === 127) {
       return {
         stdout: "", stderr: "Java runtime is not installed on this judge server",
-        exitCode: 127, timedOut: false, cpuLimitHit: false,
+        exitCode: 127, timedOut: false, cpuLimitHit: false, fileSizeLimitHit: false,
         executionTimeMs: 0, compileError: true, outputLimitHit: false,
       };
     }
@@ -176,6 +180,7 @@ async function executeJava(code: string): Promise<ExecutionResult> {
         stdout: "",
         stderr: sanitize(compile.timedOut ? "Compilation timed out" : compile.stderr, srcPath, id),
         exitCode: compile.exitCode, timedOut: compile.timedOut, cpuLimitHit: compile.cpuLimitHit,
+        fileSizeLimitHit: compile.fileSizeLimitHit,
         executionTimeMs: compile.executionTimeMs, compileError: true, outputLimitHit: false,
       };
     }
@@ -209,7 +214,7 @@ export async function executeCode(
     default:
       return {
         stdout: "", stderr: `Unsupported language: ${language}`,
-        exitCode: 1, timedOut: false, cpuLimitHit: false,
+        exitCode: 1, timedOut: false, cpuLimitHit: false, fileSizeLimitHit: false,
         executionTimeMs: 0, compileError: false, outputLimitHit: false,
       };
   }

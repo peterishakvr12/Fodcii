@@ -52,29 +52,33 @@ function httpRequest(
 }
 
 async function testSqlInjection(): Promise<SecurityFinding> {
+  // Auth is handled by Clerk (no /auth/login). We test SQL injection via
+  // the problemId path param (integer field) and the code submit body.
   const payloads = [
     "' OR '1'='1",
-    "'; DROP TABLE users; --",
-    "' OR 1=1 --",
-    "admin'--",
+    "'; DROP TABLE submissions; --",
+    "1 OR 1=1",
+    "1; DROP TABLE problems; --",
   ];
 
   const vulnerableResponses: string[] = [];
 
   for (const payload of payloads) {
     try {
-      const res = await httpRequest("POST", "/auth/login", {
-        email: payload,
-        password: payload,
+      // Test problemId injection via submit endpoint
+      const res = await httpRequest("POST", "/code/submit", {
+        language: "python",
+        problemId: payload,
+        code: "def two_sum(nums, target): return []",
       });
 
-      if (res.statusCode === 200) {
-        vulnerableResponses.push(`Payload "${payload}" returned 200`);
+      if (res.statusCode === 200 || res.statusCode === 202) {
+        vulnerableResponses.push(`problemId payload "${payload}" was accepted (${res.statusCode})`);
       } else if (res.statusCode === 500) {
-        vulnerableResponses.push(`Payload "${payload}" caused 500 (possible unhandled injection)`);
+        vulnerableResponses.push(`problemId payload "${payload}" caused 500 (possible unhandled injection)`);
       }
     } catch {
-      // network error — endpoint unreachable during test
+      // network error — skip
     }
   }
 
@@ -84,9 +88,9 @@ async function testSqlInjection(): Promise<SecurityFinding> {
       category: "Injection",
       severity: "critical",
       status: "vulnerable",
-      affectedEndpoint: "POST /api/auth/login",
+      affectedEndpoint: "POST /api/code/submit (problemId field)",
       detail: vulnerableResponses.join("; "),
-      recommendation: "Use parameterized queries / ORM (Drizzle already used — ensure no raw SQL). Validate inputs with strict schema (zod).",
+      recommendation: "Use parameterized queries / ORM (Drizzle already used). Validate integer fields with strict /^\\d+$/ regex before database access.",
     };
   }
 
@@ -95,9 +99,9 @@ async function testSqlInjection(): Promise<SecurityFinding> {
     category: "Injection",
     severity: "critical",
     status: "passed",
-    affectedEndpoint: "POST /api/auth/login",
-    detail: "All SQL injection payloads were correctly rejected (400/401). Drizzle ORM with parameterized queries is protecting the database.",
-    recommendation: "Continue using Drizzle ORM and zod input validation. Never interpolate user input into raw SQL strings.",
+    affectedEndpoint: "POST /api/code/submit (problemId field)",
+    detail: "All SQL injection payloads in problemId were correctly rejected (400). Strict /^\\d+$/ validation + Drizzle ORM parameterized queries protect the database.",
+    recommendation: "Continue using Drizzle ORM and zod/regex input validation. Never interpolate user input into raw SQL strings.",
   };
 }
 
@@ -264,19 +268,24 @@ async function testIdor(): Promise<SecurityFinding> {
 }
 
 async function testRateLimiting(): Promise<SecurityFinding> {
+  // Auth is handled by Clerk — there is no /auth/login endpoint.
+  // Rate limiting is applied to the submission endpoint (max 15/min).
+  // We burst 20 rapid submissions to verify 429 kicks in.
   const BURST = 20;
   const statuses: number[] = [];
 
   const requests = Array.from({ length: BURST }, () =>
-    httpRequest("POST", "/auth/login", {
-      email: "ratelimit@test.com",
-      password: "wrong",
+    httpRequest("POST", "/code/submit", {
+      language: "python",
+      problemId: 1,
+      code: "def two_sum(nums, target): return []",
     }).then((r) => statuses.push(r.statusCode)).catch(() => statuses.push(0))
   );
 
   await Promise.all(requests);
 
   const rateLimited = statuses.filter((s) => s === 429).length;
+  const accepted   = statuses.filter((s) => s === 200 || s === 201 || s === 202).length;
 
   if (rateLimited === 0) {
     return {
@@ -284,9 +293,9 @@ async function testRateLimiting(): Promise<SecurityFinding> {
       category: "Availability",
       severity: "medium",
       status: "vulnerable",
-      affectedEndpoint: "POST /api/auth/login",
-      detail: `${BURST} rapid login requests were accepted without any 429 response. No rate limiting detected.`,
-      recommendation: "Add rate limiting middleware (e.g. express-rate-limit). Recommend: max 10 login attempts per IP per minute. Add exponential backoff or CAPTCHA after repeated failures.",
+      affectedEndpoint: "POST /api/code/submit",
+      detail: `${BURST} rapid submission requests were accepted without any 429 response (${accepted} accepted). No rate limiting detected on submit endpoint.`,
+      recommendation: "Verify submitRateLimit middleware is applied to POST /code/submit. Check that NODE_ENV !== 'test' so rate limiting is not skipped.",
     };
   }
 
@@ -295,8 +304,8 @@ async function testRateLimiting(): Promise<SecurityFinding> {
     category: "Availability",
     severity: "medium",
     status: "passed",
-    affectedEndpoint: "POST /api/auth/login",
-    detail: `${rateLimited}/${BURST} requests were rate-limited with 429.`,
+    affectedEndpoint: "POST /api/code/submit",
+    detail: `${rateLimited}/${BURST} rapid submission requests were rate-limited (429). Submit limiter: max 15/min per user/IP.`,
     recommendation: "Rate limiting is active. Ensure limits are tuned appropriately per endpoint.",
   };
 }
@@ -304,24 +313,32 @@ async function testRateLimiting(): Promise<SecurityFinding> {
 async function testMassAssignment(): Promise<SecurityFinding> {
   const issues: string[] = [];
 
+  // Auth is handled by Clerk (no /auth/register). We test mass assignment
+  // via the code submit endpoint — attacker tries to inject privileged fields.
   try {
-    const res = await httpRequest("POST", "/auth/register", {
-      username: `masstest_${Date.now()}`,
-      email: `masstest_${Date.now()}@test.com`,
-      password: "TestPass123",
-      role: "admin",
-      passwordHash: "hacked",
+    const res = await httpRequest("POST", "/code/submit", {
+      language: "python",
+      problemId: 1,
+      code: "def two_sum(nums, target): return []",
+      // Attacker tries to inject privileged/internal fields
+      verdict: "accepted",
+      score: 100,
+      userId: "admin-override",
+      isAdmin: true,
+      internalFlag: "__bypass__",
     });
 
-    if (res.statusCode === 201) {
+    if (res.statusCode === 200 || res.statusCode === 202) {
       try {
-        const body = JSON.parse(res.body) as { user?: { role?: string } };
-        if (body.user?.role === "admin") {
-          issues.push("User was able to self-assign admin role during registration");
+        const body = JSON.parse(res.body) as Record<string, unknown>;
+        if (body["verdict"] === "accepted" || body["score"] === 100) {
+          issues.push("Server echoed attacker-supplied verdict/score in response");
         }
       } catch {
         // ignore parse error
       }
+    } else if (res.statusCode === 500) {
+      issues.push("Injected privileged fields caused 500 — possible unhandled field");
     }
   } catch {
     // skip
@@ -333,9 +350,9 @@ async function testMassAssignment(): Promise<SecurityFinding> {
       category: "Access Control",
       severity: "high",
       status: "vulnerable",
-      affectedEndpoint: "POST /api/auth/register",
+      affectedEndpoint: "POST /api/code/submit",
       detail: issues.join("; "),
-      recommendation: "Explicitly allowlist permitted fields in registration schema. Never trust client-supplied role/privilege fields.",
+      recommendation: "Explicitly allowlist permitted fields in all request schemas. Never trust client-supplied verdict, score, or userId fields.",
     };
   }
 
@@ -344,8 +361,8 @@ async function testMassAssignment(): Promise<SecurityFinding> {
     category: "Access Control",
     severity: "high",
     status: "passed",
-    affectedEndpoint: "POST /api/auth/register",
-    detail: "Attempts to set privileged fields (role, passwordHash) during registration were silently ignored — schema correctly allowlists only username, email, password.",
+    affectedEndpoint: "POST /api/code/submit",
+    detail: "Attempts to inject privileged fields (verdict, score, userId, isAdmin) were silently ignored — schema correctly allowlists only language, problemId, code.",
     recommendation: "Continue using strict zod schemas that omit sensitive fields from user input. Audit all create/update endpoints for similar protection.",
   };
 }

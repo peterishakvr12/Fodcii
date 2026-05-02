@@ -65,6 +65,13 @@ function stripPythonBoilerplate(code: string): string {
 
     if (stripped.startsWith("def ") || stripped.startsWith("class ") ||
         stripped.startsWith("import ") || stripped.startsWith("from ")) {
+      // If we're already inside a block and this is an import/from at a deeper
+      // indent, keep it as a body line — do NOT reset inBlock.
+      if (inBlock && indent > blockIndent &&
+          (stripped.startsWith("import ") || stripped.startsWith("from "))) {
+        keep.push(line);
+        continue;
+      }
       inBlock = stripped.startsWith("def ") || stripped.startsWith("class ");
       blockIndent = indent;
       keep.push(line);
@@ -632,7 +639,7 @@ export async function judgeSubmission(
       const tc = suite.testCases[i]!;
       results.push({
         description: tc.description, input: tc.input, expected: tc.expected,
-        actual: "Skipped", passed: false, verdict: "WA",
+        actual: "Skipped", passed: false, verdict: "RE",
         executionTimeMs: 0,
       });
     }
