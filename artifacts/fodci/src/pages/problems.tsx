@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Navigation } from "@/components/navigation"
 import { PageContainer } from "@/components/page-container"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -8,65 +8,18 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import { AnimatedButton } from "@/components/animated-button"
-import { Search, Filter, Code } from "lucide-react"
+import { Search, Filter, Code, Loader2 } from "lucide-react"
 import { useLocation } from "wouter"
 
-const mockProblems = [
-  {
-    id: 1,
-    title: "Two Sum",
-    category: "Arrays",
-    difficulty: "Easy",
-    level: 1,
-    description: "Given an array of integers nums and an integer target, return indices of the two numbers such that they add up to target.",
-    solved: false,
-  },
-  {
-    id: 2,
-    title: "Reverse String",
-    category: "Strings",
-    difficulty: "Easy",
-    level: 1,
-    description: "Write a function that reverses a string. The input string is given as an array of characters.",
-    solved: true,
-  },
-  {
-    id: 3,
-    title: "Binary Search",
-    category: "Algorithms",
-    difficulty: "Medium",
-    level: 2,
-    description: "Given a sorted array and a target, write a function to search target in the array with O(log n) runtime complexity.",
-    solved: false,
-  },
-  {
-    id: 4,
-    title: "Valid Parentheses",
-    category: "Stacks",
-    difficulty: "Easy",
-    level: 1,
-    description: "Given a string of brackets, determine if the input string is valid (brackets are closed in the correct order).",
-    solved: false,
-  },
-  {
-    id: 5,
-    title: "Maximum Subarray",
-    category: "Dynamic Programming",
-    difficulty: "Medium",
-    level: 2,
-    description: "Given an integer array nums, find the subarray with the largest sum, and return its sum.",
-    solved: false,
-  },
-  {
-    id: 6,
-    title: "Graph Traversal (BFS/DFS)",
-    category: "Graphs",
-    difficulty: "Hard",
-    level: 3,
-    description: "Given a directed graph, find all reachable nodes from a given source node and return them in BFS order.",
-    solved: false,
-  },
-]
+interface Problem {
+  id: number
+  title: string
+  category: string
+  difficulty: string
+  level: number
+  description: string
+  solved: boolean
+}
 
 const categories = ["All", "Arrays", "Strings", "Algorithms", "Stacks", "Dynamic Programming", "Graphs"]
 const levels = ["All", "1", "2", "3"]
@@ -77,17 +30,39 @@ export default function ProblemsPage() {
   const [selectedCategory, setSelectedCategory] = useState("All")
   const [selectedDifficulty, setSelectedDifficulty] = useState("All")
   const [selectedLevel, setSelectedLevel] = useState("All")
+  const [problems, setProblems] = useState<Problem[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  const filteredProblems = mockProblems.filter((problem) => {
-    const matchesSearch =
-      problem.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      problem.description.toLowerCase().includes(searchTerm.toLowerCase())
-    const matchesCategory = selectedCategory === "All" || problem.category === selectedCategory
-    const matchesDifficulty = selectedDifficulty === "All" || problem.difficulty === selectedDifficulty
-    const matchesLevel = selectedLevel === "All" || problem.level.toString() === selectedLevel
+  useEffect(() => {
+    const fetchProblems = async () => {
+      setLoading(true)
+      setError(null)
+      try {
+        const token = localStorage.getItem("fodci-token")
+        const params = new URLSearchParams()
+        if (searchTerm) params.set("search", searchTerm)
+        if (selectedCategory !== "All") params.set("category", selectedCategory)
+        if (selectedDifficulty !== "All") params.set("difficulty", selectedDifficulty)
+        if (selectedLevel !== "All") params.set("level", selectedLevel)
 
-    return matchesSearch && matchesCategory && matchesDifficulty && matchesLevel
-  })
+        const headers: Record<string, string> = {}
+        if (token) headers["Authorization"] = `Bearer ${token}`
+
+        const res = await fetch(`/api/problems?${params.toString()}`, { headers })
+        if (!res.ok) throw new Error("Failed to load problems")
+        const data = await res.json()
+        setProblems(data.problems ?? [])
+      } catch (e: unknown) {
+        const err = e as { message?: string }
+        setError(err.message ?? "Failed to load problems")
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchProblems()
+  }, [searchTerm, selectedCategory, selectedDifficulty, selectedLevel])
 
   const getDifficultyColor = (difficulty: string) => {
     switch (difficulty) {
@@ -198,65 +173,77 @@ export default function ProblemsPage() {
             <div className="mb-8">
               <h1 className="text-3xl font-bold text-foreground mb-2">Programming Problems</h1>
               <p className="text-muted-foreground">
-                Choose a problem to start coding. Found {filteredProblems.length} problems.
+                {loading ? "Loading problems..." : `Choose a problem to start coding. Found ${problems.length} problems.`}
               </p>
             </div>
 
-            <div className="grid gap-6">
-              {filteredProblems.map((problem) => (
-                <Card key={problem.id} className="group hover:shadow-lg transition-all duration-300 hover:scale-[1.02]">
-                  <CardHeader>
-                    <div className="flex items-start justify-between">
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-3">
-                          <CardTitle className="text-xl group-hover:text-primary transition-colors">
-                            {problem.title}
-                          </CardTitle>
-                          {problem.solved && (
-                            <Badge variant="secondary" className="bg-green-500/10 text-green-500 border-green-500/20">
-                              Solved
-                            </Badge>
-                          )}
+            {loading ? (
+              <div className="flex items-center justify-center py-16">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              </div>
+            ) : error ? (
+              <Card className="text-center py-12">
+                <CardContent>
+                  <p className="text-destructive">{error}</p>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="grid gap-6">
+                {problems.map((problem) => (
+                  <Card key={problem.id} className="group hover:shadow-lg transition-all duration-300 hover:scale-[1.02]">
+                    <CardHeader>
+                      <div className="flex items-start justify-between">
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-3">
+                            <CardTitle className="text-xl group-hover:text-primary transition-colors">
+                              {problem.title}
+                            </CardTitle>
+                            {problem.solved && (
+                              <Badge variant="secondary" className="bg-green-500/10 text-green-500 border-green-500/20">
+                                Solved
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Badge variant="outline">{problem.category}</Badge>
+                            <Badge className={getDifficultyColor(problem.difficulty)}>{problem.difficulty}</Badge>
+                            <Badge variant="secondary">Level {problem.level}</Badge>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <Badge variant="outline">{problem.category}</Badge>
-                          <Badge className={getDifficultyColor(problem.difficulty)}>{problem.difficulty}</Badge>
-                          <Badge variant="secondary">Level {problem.level}</Badge>
-                        </div>
+                        <AnimatedButton
+                          onClick={() => handleSolveProblem(problem.id)}
+                          className="bg-primary hover:bg-primary/90"
+                        >
+                          <Code className="mr-2 h-4 w-4 inline" />
+                          Solve Now
+                        </AnimatedButton>
                       </div>
-                      <AnimatedButton
-                        onClick={() => handleSolveProblem(problem.id)}
-                        className="bg-primary hover:bg-primary/90"
-                      >
-                        <Code className="mr-2 h-4 w-4 inline" />
-                        Solve Now
-                      </AnimatedButton>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <CardDescription className="text-base leading-relaxed">{problem.description}</CardDescription>
-                  </CardContent>
-                </Card>
-              ))}
+                    </CardHeader>
+                    <CardContent>
+                      <CardDescription className="text-base leading-relaxed">{problem.description}</CardDescription>
+                    </CardContent>
+                  </Card>
+                ))}
 
-              {filteredProblems.length === 0 && (
-                <Card className="text-center py-12">
-                  <CardContent>
-                    <div className="flex flex-col items-center gap-4">
-                      <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center">
-                        <Search className="h-8 w-8 text-muted-foreground" />
+                {problems.length === 0 && (
+                  <Card className="text-center py-12">
+                    <CardContent>
+                      <div className="flex flex-col items-center gap-4">
+                        <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center">
+                          <Search className="h-8 w-8 text-muted-foreground" />
+                        </div>
+                        <div>
+                          <h3 className="text-lg font-semibold mb-2">No problems found</h3>
+                          <p className="text-muted-foreground">
+                            Try adjusting your filters or search terms to find problems.
+                          </p>
+                        </div>
                       </div>
-                      <div>
-                        <h3 className="text-lg font-semibold mb-2">No problems found</h3>
-                        <p className="text-muted-foreground">
-                          Try adjusting your filters or search terms to find problems.
-                        </p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-            </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            )}
           </PageContainer>
         </main>
       </div>

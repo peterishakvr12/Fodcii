@@ -1,54 +1,149 @@
 import { Router } from "express";
+import { db, usersTable, submissionsTable, userStatsTable, problemsTable } from "@workspace/db";
+import { desc, eq, sql, count, countDistinct } from "drizzle-orm";
 import { readRateLimit } from "../middleware/rate-limit.js";
-import { cache, TTL, TAGS } from "../lib/cache.js";
 
 const router = Router();
 
-const mockLeaderboard = [
-  { rank: 1, name: "Alex Chen", avatar: "/abstract-geometric-shapes.png", email: "alex.chen@example.com", solvedProblems: 98, totalProblems: 110, points: 2450, streak: 15, level: "Expert" },
-  { rank: 2, name: "Sarah Johnson", avatar: "/abstract-geometric-shapes.png", email: "sarah.j@example.com", solvedProblems: 89, totalProblems: 110, points: 2180, streak: 8, level: "Advanced" },
-  { rank: 3, name: "Michael Rodriguez", avatar: "/diverse-group-collaborating.png", email: "m.rodriguez@example.com", solvedProblems: 82, totalProblems: 110, points: 1950, streak: 12, level: "Advanced" },
-  { rank: 4, name: "Emily Davis", avatar: "/diverse-user-avatars.png", email: "emily.davis@example.com", solvedProblems: 76, totalProblems: 110, points: 1820, streak: 5, level: "Intermediate" },
-  { rank: 5, name: "David Kim", avatar: "/diverse-user-avatars.png", email: "david.kim@example.com", solvedProblems: 71, totalProblems: 110, points: 1690, streak: 9, level: "Intermediate" },
-  { rank: 6, name: "Lisa Wang", avatar: "/diverse-user-avatars.png", email: "lisa.wang@example.com", solvedProblems: 68, totalProblems: 110, points: 1580, streak: 3, level: "Intermediate" },
-  { rank: 7, name: "James Wilson", avatar: "/diverse-user-avatars.png", email: "james.w@example.com", solvedProblems: 63, totalProblems: 110, points: 1450, streak: 7, level: "Intermediate" },
-  { rank: 8, name: "Maria Garcia", avatar: "/diverse-user-avatars.png", email: "maria.g@example.com", solvedProblems: 58, totalProblems: 110, points: 1320, streak: 4, level: "Beginner" },
-];
-
-const CACHE_KEY = "leaderboard:main";
-
-router.get("/leaderboard", readRateLimit, (_req, res) => {
-  const cached = cache.get<typeof mockLeaderboard>(CACHE_KEY);
-  if (cached) {
-    res.set("X-Cache", "HIT");
-    res.json({ leaderboard: cached, stats: getStats() });
-    return;
-  }
-
-  cache.set(CACHE_KEY, mockLeaderboard, TTL.LEADERBOARD, [TAGS.LEADERBOARD]);
-  res.set("X-Cache", "MISS");
-  res.json({ leaderboard: mockLeaderboard, stats: getStats() });
-});
-
-router.get("/leaderboard/user/:rank", readRateLimit, (req, res) => {
-  const rank = parseInt(req.params.rank);
-  const user = mockLeaderboard.find((u) => u.rank === rank);
-
-  if (!user) {
-    res.status(404).json({ error: "User not found" });
-    return;
-  }
-
-  res.json({ user });
-});
-
-function getStats() {
-  return {
-    totalUsers: 2847,
-    activeToday: 342,
-    problemsSolvedToday: 1256,
-    averageProblems: 34,
-  };
+function getLevel(points: number): string {
+  if (points >= 2000) return "Expert";
+  if (points >= 1500) return "Advanced";
+  if (points >= 500) return "Intermediate";
+  return "Beginner";
 }
+
+router.get("/leaderboard", readRateLimit, async (req, res) => {
+  try {
+    const rows = await db
+      .select({
+        id: usersTable.id,
+        name: usersTable.username,
+        points: userStatsTable.points,
+        currentStreak: userStatsTable.currentStreak,
+      })
+      .from(usersTable)
+      .leftJoin(userStatsTable, eq(userStatsTable.userId, usersTable.id))
+      .where(sql`${usersTable.role} = 'user'`)
+      .orderBy(desc(sql`COALESCE(${userStatsTable.points}, 0)`));
+
+    const [totalProblemsResult] = await db.select({ count: count() }).from(problemsTable);
+    const totalProblems = Number(totalProblemsResult?.count ?? 0);
+
+    const [totalUsersResult] = await db
+      .select({ count: count() })
+      .from(usersTable)
+      .where(sql`${usersTable.role} = 'user'`);
+    const totalUsers = Number(totalUsersResult?.count ?? 0);
+
+    const solvedPerUser = await db
+      .select({
+        userId: submissionsTable.userId,
+        count: countDistinct(submissionsTable.problemId),
+      })
+      .from(submissionsTable)
+      .where(sql`${submissionsTable.status} = 'accepted'`)
+      .groupBy(submissionsTable.userId);
+
+    const solvedMap = new Map(solvedPerUser.map((r) => [r.userId, Number(r.count)]));
+
+    const leaderboard = rows.map((user, index) => {
+      const solved = solvedMap.get(user.id) ?? 0;
+      const points = user.points ?? 0;
+      return {
+        id: user.id,
+        rank: index + 1,
+        name: user.name,
+        avatar: "/diverse-user-avatars.png",
+        solvedProblems: solved,
+        totalProblems,
+        points,
+        streak: user.currentStreak ?? 0,
+        level: getLevel(points),
+      };
+    });
+
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const [[activeTodayResult], [solvedTodayResult]] = await Promise.all([
+      db
+        .select({ count: countDistinct(submissionsTable.userId) })
+        .from(submissionsTable)
+        .where(sql`${submissionsTable.createdAt} >= ${todayStart}`),
+      db
+        .select({ count: countDistinct(submissionsTable.problemId) })
+        .from(submissionsTable)
+        .where(sql`${submissionsTable.createdAt} >= ${todayStart} AND ${submissionsTable.status} = 'accepted'`),
+    ]);
+
+    const activeToday = Number(activeTodayResult?.count ?? 0);
+    const problemsSolvedToday = Number(solvedTodayResult?.count ?? 0);
+    const totalSolved = leaderboard.reduce((sum, u) => sum + u.solvedProblems, 0);
+    const averageProblems = totalUsers > 0 ? Math.round(totalSolved / totalUsers) : 0;
+
+    return res.json({
+      leaderboard,
+      stats: { totalUsers, activeToday, problemsSolvedToday, averageProblems },
+    });
+  } catch (err: unknown) {
+    const e = err as { message?: string };
+    return res.status(500).json({ error: e.message ?? "Failed to fetch leaderboard" });
+  }
+});
+
+router.get("/leaderboard/user/:rank", readRateLimit, async (req, res) => {
+  const rank = parseInt(req.params.rank);
+  if (isNaN(rank) || rank < 1) {
+    return res.status(400).json({ error: "Invalid rank" });
+  }
+
+  try {
+    const rows = await db
+      .select({
+        id: usersTable.id,
+        name: usersTable.username,
+        points: userStatsTable.points,
+        currentStreak: userStatsTable.currentStreak,
+      })
+      .from(usersTable)
+      .leftJoin(userStatsTable, eq(userStatsTable.userId, usersTable.id))
+      .where(sql`${usersTable.role} = 'user'`)
+      .orderBy(desc(sql`COALESCE(${userStatsTable.points}, 0)`));
+
+    const userRow = rows[rank - 1];
+    if (!userRow) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const [[totalProblemsResult], [solvedResult]] = await Promise.all([
+      db.select({ count: count() }).from(problemsTable),
+      db
+        .select({ count: countDistinct(submissionsTable.problemId) })
+        .from(submissionsTable)
+        .where(sql`${submissionsTable.userId} = ${userRow.id} AND ${submissionsTable.status} = 'accepted'`),
+    ]);
+
+    const totalProblems = Number(totalProblemsResult?.count ?? 0);
+    const solved = Number(solvedResult?.count ?? 0);
+    const points = userRow.points ?? 0;
+
+    return res.json({
+      user: {
+        id: userRow.id,
+        rank,
+        name: userRow.name,
+        avatar: "/diverse-user-avatars.png",
+        solvedProblems: solved,
+        totalProblems,
+        points,
+        streak: userRow.currentStreak ?? 0,
+        level: getLevel(points),
+      },
+    });
+  } catch (err: unknown) {
+    const e = err as { message?: string };
+    return res.status(500).json({ error: e.message ?? "Failed to fetch user" });
+  }
+});
 
 export default router;

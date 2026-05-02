@@ -37,19 +37,28 @@ export default function SignupPage() {
         return
       }
 
-      await new Promise((resolve) => setTimeout(resolve, 1000))
-
-      if (formData.name && formData.email && formData.password) {
-        login({
-          id: "1",
+      const res = await fetch("/api/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: formData.name,
           email: formData.email,
-          name: formData.name,
-          avatar: "/placeholder.svg",
-        })
-        navigate("/problems")
-      } else {
-        setError("Please fill in all fields")
+          password: formData.password,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setError(data.error ?? "Failed to create account. Please try again.")
+        return
       }
+      localStorage.setItem("fodci-token", data.token)
+      login({
+        id: String(data.user.id),
+        email: data.user.email,
+        name: data.user.username,
+        avatar: "/placeholder.svg",
+      })
+      navigate("/problems")
     } catch {
       setError("Failed to create account. Please try again.")
     } finally {

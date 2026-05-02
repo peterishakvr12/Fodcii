@@ -1,24 +1,50 @@
+import { useState, useEffect } from "react"
 import { Navigation } from "@/components/navigation"
 import { PageContainer } from "@/components/page-container"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Trophy, Medal, Award, Crown } from "lucide-react"
+import { Trophy, Medal, Award, Crown, Loader2 } from "lucide-react"
 import { Link } from "wouter"
 
-const mockLeaderboard = [
-  { rank: 1, name: "Alex Chen", avatar: "/abstract-geometric-shapes.png", email: "alex.chen@example.com", solvedProblems: 98, totalProblems: 110, points: 2450, streak: 15, level: "Expert" },
-  { rank: 2, name: "Sarah Johnson", avatar: "/abstract-geometric-shapes.png", email: "sarah.j@example.com", solvedProblems: 89, totalProblems: 110, points: 2180, streak: 8, level: "Advanced" },
-  { rank: 3, name: "Michael Rodriguez", avatar: "/diverse-group-collaborating.png", email: "m.rodriguez@example.com", solvedProblems: 82, totalProblems: 110, points: 1950, streak: 12, level: "Advanced" },
-  { rank: 4, name: "Emily Davis", avatar: "/diverse-user-avatars.png", email: "emily.davis@example.com", solvedProblems: 76, totalProblems: 110, points: 1820, streak: 5, level: "Intermediate" },
-  { rank: 5, name: "David Kim", avatar: "/diverse-user-avatars.png", email: "david.kim@example.com", solvedProblems: 71, totalProblems: 110, points: 1690, streak: 9, level: "Intermediate" },
-  { rank: 6, name: "Lisa Wang", avatar: "/diverse-user-avatars.png", email: "lisa.wang@example.com", solvedProblems: 68, totalProblems: 110, points: 1580, streak: 3, level: "Intermediate" },
-  { rank: 7, name: "James Wilson", avatar: "/diverse-user-avatars.png", email: "james.w@example.com", solvedProblems: 63, totalProblems: 110, points: 1450, streak: 7, level: "Intermediate" },
-  { rank: 8, name: "Maria Garcia", avatar: "/diverse-user-avatars.png", email: "maria.g@example.com", solvedProblems: 58, totalProblems: 110, points: 1320, streak: 4, level: "Beginner" },
-]
+interface LeaderboardUser {
+  id: number
+  rank: number
+  name: string
+  avatar: string
+  solvedProblems: number
+  totalProblems: number
+  points: number
+  streak: number
+  level: string
+}
 
 export default function LeaderboardPage() {
+  const [leaderboard, setLeaderboard] = useState<LeaderboardUser[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const fetchLeaderboard = async () => {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch("/api/leaderboard")
+        if (!res.ok) throw new Error("Failed to load leaderboard")
+        const data = await res.json()
+        setLeaderboard(data.leaderboard ?? [])
+      } catch (e: unknown) {
+        const err = e as { message?: string }
+        setError(err.message ?? "Failed to load leaderboard")
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchLeaderboard()
+  }, [])
+
   const getRankIcon = (rank: number) => {
     switch (rank) {
       case 1: return <Crown className="h-5 w-5 text-yellow-500" />
@@ -36,6 +62,82 @@ export default function LeaderboardPage() {
       case "Beginner": return "bg-green-500/10 text-green-500 border-green-500/20"
       default: return "bg-muted text-muted-foreground"
     }
+  }
+
+  const renderLeaderboardList = () => {
+    if (loading) {
+      return (
+        <div className="flex items-center justify-center py-16">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      )
+    }
+
+    if (error) {
+      return (
+        <div className="text-center py-8 text-destructive">{error}</div>
+      )
+    }
+
+    if (leaderboard.length === 0) {
+      return (
+        <div className="text-center py-12 text-muted-foreground">
+          No users on the leaderboard yet. Start solving problems to appear here!
+        </div>
+      )
+    }
+
+    return (
+      <div className="space-y-4">
+        {leaderboard.map((user) => (
+          <div
+            key={user.rank}
+            className={`flex items-center justify-between p-4 rounded-lg border transition-all duration-300 hover:shadow-lg ${
+              user.rank <= 3
+                ? "border-primary/30 bg-primary/5 hover:shadow-primary/10"
+                : "border-border/50 hover:bg-muted/20"
+            }`}
+          >
+            <div className="flex items-center gap-4">
+              <div className="flex items-center justify-center w-8">{getRankIcon(user.rank)}</div>
+
+              <Link href={`/users/${user.id}`} className="hover:opacity-80 transition-opacity">
+                <Avatar className="h-12 w-12 cursor-pointer">
+                  <AvatarImage src={user.avatar || "/placeholder.svg"} alt={user.name} />
+                  <AvatarFallback>{user.name.charAt(0)}</AvatarFallback>
+                </Avatar>
+              </Link>
+
+              <div>
+                <h4 className="font-semibold text-foreground">{user.name}</h4>
+                <div className="flex items-center gap-2 mt-1">
+                  <Badge className={getLevelColor(user.level)} variant="outline">
+                    {user.level}
+                  </Badge>
+                  {user.streak > 0 && (
+                    <Badge variant="secondary" className="text-xs">
+                      {user.streak} day streak
+                    </Badge>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="text-right space-y-1">
+              <div className="text-lg font-bold text-primary">{user.points} pts</div>
+              <div className="text-sm text-muted-foreground">
+                {user.solvedProblems}/{user.totalProblems} solved
+              </div>
+              {user.totalProblems > 0 && (
+                <div className="text-xs text-muted-foreground">
+                  {Math.round((user.solvedProblems / user.totalProblems) * 100)}% success rate
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    )
   }
 
   return (
@@ -72,54 +174,7 @@ export default function LeaderboardPage() {
                   <CardDescription>Rankings based on total problems solved and points earned</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-4">
-                    {mockLeaderboard.map((user) => (
-                      <div
-                        key={user.rank}
-                        className={`flex items-center justify-between p-4 rounded-lg border transition-all duration-300 hover:shadow-lg ${
-                          user.rank <= 3
-                            ? "border-primary/30 bg-primary/5 hover:shadow-primary/10"
-                            : "border-border/50 hover:bg-muted/20"
-                        }`}
-                      >
-                        <div className="flex items-center gap-4">
-                          <div className="flex items-center justify-center w-8">{getRankIcon(user.rank)}</div>
-
-                          <Link href={`/users/${user.rank}`} className="hover:opacity-80 transition-opacity">
-                            <Avatar className="h-12 w-12 cursor-pointer">
-                              <AvatarImage src={user.avatar || "/placeholder.svg"} alt={user.name} />
-                              <AvatarFallback>{user.name.charAt(0)}</AvatarFallback>
-                            </Avatar>
-                          </Link>
-
-                          <div>
-                            <h4 className="font-semibold text-foreground">{user.name}</h4>
-                            <p className="text-sm text-muted-foreground">{user.email}</p>
-                            <div className="flex items-center gap-2 mt-1">
-                              <Badge className={getLevelColor(user.level)} variant="outline">
-                                {user.level}
-                              </Badge>
-                              {user.streak > 0 && (
-                                <Badge variant="secondary" className="text-xs">
-                                  {user.streak} day streak
-                                </Badge>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="text-right space-y-1">
-                          <div className="text-lg font-bold text-primary">{user.points} pts</div>
-                          <div className="text-sm text-muted-foreground">
-                            {user.solvedProblems}/{user.totalProblems} solved
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            {Math.round((user.solvedProblems / user.totalProblems) * 100)}% success rate
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                  {renderLeaderboardList()}
                 </CardContent>
               </Card>
             </TabsContent>

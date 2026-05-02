@@ -1,5 +1,5 @@
-import { eq, asc } from "drizzle-orm";
-import { db, problemsTable, testCasesTable, submissionsTable } from "@workspace/db";
+import { eq, asc, sql } from "drizzle-orm";
+import { db, problemsTable, testCasesTable, submissionsTable, userStatsTable } from "@workspace/db";
 import type { InsertProblem, InsertTestCase } from "@workspace/db";
 
 export interface CreateProblemInput {
@@ -19,6 +19,7 @@ export async function listProblems(filters: {
   category?: string;
   level?: string;
   search?: string;
+  userId?: number;
 }) {
   const rows = await db
     .select({
@@ -29,6 +30,7 @@ export async function listProblems(filters: {
       level: problemsTable.level,
       submissionsCount: problemsTable.submissionsCount,
       acceptanceRate: problemsTable.acceptanceRate,
+      description: problemsTable.description,
     })
     .from(problemsTable)
     .orderBy(asc(problemsTable.id));
@@ -51,8 +53,20 @@ export async function listProblems(filters: {
     results = results.filter(
       (p) =>
         p.title.toLowerCase().includes(q) ||
-        p.category.toLowerCase().includes(q)
+        p.category.toLowerCase().includes(q) ||
+        p.description.toLowerCase().includes(q)
     );
+  }
+
+  let solvedSet = new Set<number>();
+  if (filters.userId) {
+    const solved = await db
+      .select({ problemId: submissionsTable.problemId })
+      .from(submissionsTable)
+      .where(
+        sql`${submissionsTable.userId} = ${filters.userId} AND ${submissionsTable.status} = 'accepted'`
+      );
+    solvedSet = new Set(solved.map((s) => s.problemId));
   }
 
   return results.map((p) => ({
@@ -61,13 +75,14 @@ export async function listProblems(filters: {
     category: p.category,
     difficulty: p.difficulty,
     level: p.level,
-    solved: false,
+    description: p.description,
+    solved: solvedSet.has(p.id),
     submissions: p.submissionsCount,
     acceptanceRate: parseFloat(p.acceptanceRate ?? "0"),
   }));
 }
 
-export async function getProblemById(id: number) {
+export async function getProblemById(id: number, userId?: number) {
   const [problem] = await db
     .select()
     .from(problemsTable)
@@ -82,6 +97,18 @@ export async function getProblemById(id: number) {
     .where(eq(testCasesTable.problemId, id))
     .orderBy(asc(testCasesTable.id));
 
+  let solved = false;
+  if (userId) {
+    const [s] = await db
+      .select({ id: submissionsTable.id })
+      .from(submissionsTable)
+      .where(
+        sql`${submissionsTable.userId} = ${userId} AND ${submissionsTable.problemId} = ${id} AND ${submissionsTable.status} = 'accepted'`
+      )
+      .limit(1);
+    solved = !!s;
+  }
+
   return {
     id: problem.id,
     title: problem.title,
@@ -92,7 +119,7 @@ export async function getProblemById(id: number) {
     examples: problem.examples as unknown[],
     constraints: problem.constraints as string[],
     starterCode: problem.starterCode as Record<string, string>,
-    solved: false,
+    solved,
     submissions: problem.submissionsCount,
     acceptanceRate: parseFloat(problem.acceptanceRate ?? "0"),
     testCases: testCases.map((tc) => ({
@@ -135,6 +162,15 @@ export async function createProblem(input: CreateProblemInput) {
   return getProblemById(problem.id);
 }
 
+function difficultyPoints(difficulty: string): number {
+  switch (difficulty.toLowerCase()) {
+    case "easy": return 10;
+    case "medium": return 20;
+    case "hard": return 30;
+    default: return 10;
+  }
+}
+
 export async function recordSubmission(params: {
   userId: number | null;
   problemId: number;
@@ -159,16 +195,77 @@ export async function recordSubmission(params: {
     })
     .returning({ id: submissionsTable.id });
 
-  if (params.status === "accepted") {
-    await db
-      .update(problemsTable)
-      .set({
-        submissionsCount: db.$count(
-          submissionsTable,
-          eq(submissionsTable.problemId, params.problemId)
-        ) as unknown as number,
-      })
-      .where(eq(problemsTable.id, params.problemId));
+  await db
+    .update(problemsTable)
+    .set({
+      submissionsCount: sql`${problemsTable.submissionsCount} + 1`,
+    })
+    .where(eq(problemsTable.id, params.problemId));
+
+  if (params.userId && params.status === "accepted") {
+    const [problem] = await db
+      .select({ difficulty: problemsTable.difficulty })
+      .from(problemsTable)
+      .where(eq(problemsTable.id, params.problemId))
+      .limit(1);
+
+    const alreadySolved = await db
+      .select({ id: submissionsTable.id })
+      .from(submissionsTable)
+      .where(
+        sql`${submissionsTable.userId} = ${params.userId} AND ${submissionsTable.problemId} = ${params.problemId} AND ${submissionsTable.status} = 'accepted' AND ${submissionsTable.id} != ${submission.id}`
+      )
+      .limit(1);
+
+    const isFirstSolve = alreadySolved.length === 0;
+    const pts = isFirstSolve && problem ? difficultyPoints(problem.difficulty) : 0;
+
+    const today = new Date().toISOString().split("T")[0];
+
+    const [existing] = await db
+      .select()
+      .from(userStatsTable)
+      .where(eq(userStatsTable.userId, params.userId))
+      .limit(1);
+
+    if (!existing) {
+      await db.insert(userStatsTable).values({
+        userId: params.userId,
+        points: pts,
+        currentStreak: 1,
+        longestStreak: 1,
+        lastActivityDate: today,
+      });
+    } else {
+      const lastDate = existing.lastActivityDate;
+      let newStreak = existing.currentStreak;
+
+      if (lastDate) {
+        const last = new Date(lastDate);
+        const todayDate = new Date(today);
+        const diffDays = Math.floor((todayDate.getTime() - last.getTime()) / 86400000);
+        if (diffDays === 1) {
+          newStreak = existing.currentStreak + 1;
+        } else if (diffDays > 1) {
+          newStreak = 1;
+        }
+      } else {
+        newStreak = 1;
+      }
+
+      const newLongest = Math.max(existing.longestStreak, newStreak);
+
+      await db
+        .update(userStatsTable)
+        .set({
+          points: existing.points + pts,
+          currentStreak: newStreak,
+          longestStreak: newLongest,
+          lastActivityDate: today,
+          updatedAt: new Date(),
+        })
+        .where(eq(userStatsTable.userId, params.userId));
+    }
   }
 
   return submission;

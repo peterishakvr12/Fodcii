@@ -24,21 +24,26 @@ export default function LoginPage() {
     setIsLoading(true)
 
     try {
-      await new Promise((resolve) => setTimeout(resolve, 1000))
-
-      if (formData.email && formData.password) {
-        login({
-          id: "1",
-          email: formData.email,
-          name: formData.email.split("@")[0],
-          avatar: "/placeholder.svg",
-        })
-        navigate("/problems")
-      } else {
-        setError("Please fill in all fields")
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: formData.email, password: formData.password }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setError(data.error ?? "Invalid email or password")
+        return
       }
+      localStorage.setItem("fodci-token", data.token)
+      login({
+        id: String(data.user.id),
+        email: data.user.email,
+        name: data.user.username,
+        avatar: "/placeholder.svg",
+      })
+      navigate("/problems")
     } catch {
-      setError("Invalid email or password")
+      setError("Failed to connect. Please try again.")
     } finally {
       setIsLoading(false)
     }

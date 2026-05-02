@@ -8,7 +8,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
-import { Trophy, CheckCircle, XCircle, Clock, Award, Zap, ArrowLeft } from "lucide-react"
+import { Trophy, CheckCircle, XCircle, Clock, Award, ArrowLeft, Loader2 } from "lucide-react"
 
 interface UserStats {
   totalProblems: number
@@ -23,120 +23,15 @@ interface UserStats {
 }
 
 interface UserData {
-  id: string
+  id: number
   name: string
-  email: string
   avatar: string
   joinedDate: string
   rank: number
   level: string
   stats: UserStats
-  achievements: { id: number; title: string; description: string; earned: boolean; earnedDate?: string }[]
+  achievements: { id: number; title: string; description: string; earned: boolean; earnedDate?: string | null }[]
   recentActivity: { id: number; problem: string; difficulty: string; status: string; date: string; time: string }[]
-}
-
-const mockUsers: Record<string, UserData> = {
-  "1": {
-    id: "1", name: "Alex Chen", email: "alex.chen@example.com", avatar: "/abstract-geometric-shapes.png",
-    joinedDate: "2023-08-15", rank: 1, level: "Expert",
-    stats: { totalProblems: 110, solvedProblems: 98, easyProblems: 45, mediumProblems: 38, hardProblems: 15, currentStreak: 15, longestStreak: 23, points: 2450, totalUsers: 2847 },
-    achievements: [
-      { id: 1, title: "First Steps", description: "Solve your first problem", earned: true, earnedDate: "2023-08-16" },
-      { id: 2, title: "Problem Solver", description: "Solve 10 problems", earned: true, earnedDate: "2023-08-22" },
-      { id: 3, title: "Streak Master", description: "Maintain a 7-day streak", earned: true, earnedDate: "2023-09-01" },
-      { id: 4, title: "Algorithm Expert", description: "Solve 50 problems", earned: true, earnedDate: "2023-10-05" },
-    ],
-    recentActivity: [
-      { id: 1, problem: "Two Sum", difficulty: "Easy", status: "solved", date: "2024-01-28", time: "4m 32s" },
-      { id: 2, problem: "Binary Search", difficulty: "Medium", status: "solved", date: "2024-01-27", time: "8m 15s" },
-      { id: 3, problem: "Graph Traversal", difficulty: "Hard", status: "solved", date: "2024-01-25", time: "18m 40s" },
-    ],
-  },
-  "2": {
-    id: "2", name: "Sarah Johnson", email: "sarah.j@example.com", avatar: "/abstract-geometric-shapes.png",
-    joinedDate: "2023-09-02", rank: 2, level: "Advanced",
-    stats: { totalProblems: 110, solvedProblems: 89, easyProblems: 42, mediumProblems: 32, hardProblems: 15, currentStreak: 8, longestStreak: 18, points: 2180, totalUsers: 2847 },
-    achievements: [
-      { id: 1, title: "First Steps", description: "Solve your first problem", earned: true, earnedDate: "2023-09-03" },
-      { id: 2, title: "Problem Solver", description: "Solve 10 problems", earned: true, earnedDate: "2023-09-12" },
-    ],
-    recentActivity: [
-      { id: 1, problem: "Two Sum", difficulty: "Easy", status: "solved", date: "2024-01-28", time: "6m 10s" },
-      { id: 2, problem: "Maximum Subarray", difficulty: "Medium", status: "attempted", date: "2024-01-26", time: "15m 00s" },
-    ],
-  },
-  "3": {
-    id: "3", name: "Michael Rodriguez", email: "m.rodriguez@example.com", avatar: "/diverse-group-collaborating.png",
-    joinedDate: "2023-09-20", rank: 3, level: "Advanced",
-    stats: { totalProblems: 110, solvedProblems: 82, easyProblems: 40, mediumProblems: 30, hardProblems: 12, currentStreak: 12, longestStreak: 20, points: 1950, totalUsers: 2847 },
-    achievements: [
-      { id: 1, title: "First Steps", description: "Solve your first problem", earned: true, earnedDate: "2023-09-21" },
-      { id: 2, title: "Problem Solver", description: "Solve 10 problems", earned: true, earnedDate: "2023-10-01" },
-      { id: 3, title: "Streak Master", description: "Maintain a 7-day streak", earned: true, earnedDate: "2023-10-15" },
-    ],
-    recentActivity: [
-      { id: 1, problem: "Binary Search", difficulty: "Medium", status: "solved", date: "2024-01-28", time: "7m 45s" },
-      { id: 2, problem: "Valid Parentheses", difficulty: "Easy", status: "solved", date: "2024-01-27", time: "3m 20s" },
-    ],
-  },
-  "4": {
-    id: "4", name: "Emily Davis", email: "emily.davis@example.com", avatar: "/diverse-user-avatars.png",
-    joinedDate: "2023-10-05", rank: 4, level: "Intermediate",
-    stats: { totalProblems: 110, solvedProblems: 76, easyProblems: 38, mediumProblems: 28, hardProblems: 10, currentStreak: 5, longestStreak: 14, points: 1820, totalUsers: 2847 },
-    achievements: [
-      { id: 1, title: "First Steps", description: "Solve your first problem", earned: true, earnedDate: "2023-10-06" },
-      { id: 2, title: "Problem Solver", description: "Solve 10 problems", earned: true, earnedDate: "2023-10-18" },
-    ],
-    recentActivity: [
-      { id: 1, problem: "Two Sum", difficulty: "Easy", status: "solved", date: "2024-01-27", time: "5m 15s" },
-    ],
-  },
-  "5": {
-    id: "5", name: "David Kim", email: "david.kim@example.com", avatar: "/diverse-user-avatars.png",
-    joinedDate: "2023-10-12", rank: 5, level: "Intermediate",
-    stats: { totalProblems: 110, solvedProblems: 71, easyProblems: 35, mediumProblems: 25, hardProblems: 11, currentStreak: 9, longestStreak: 16, points: 1690, totalUsers: 2847 },
-    achievements: [
-      { id: 1, title: "First Steps", description: "Solve your first problem", earned: true, earnedDate: "2023-10-13" },
-      { id: 2, title: "Problem Solver", description: "Solve 10 problems", earned: true, earnedDate: "2023-10-25" },
-    ],
-    recentActivity: [
-      { id: 1, problem: "Maximum Subarray", difficulty: "Medium", status: "solved", date: "2024-01-26", time: "9m 30s" },
-    ],
-  },
-  "6": {
-    id: "6", name: "Lisa Wang", email: "lisa.wang@example.com", avatar: "/diverse-user-avatars.png",
-    joinedDate: "2023-11-01", rank: 6, level: "Intermediate",
-    stats: { totalProblems: 110, solvedProblems: 68, easyProblems: 33, mediumProblems: 24, hardProblems: 11, currentStreak: 3, longestStreak: 10, points: 1580, totalUsers: 2847 },
-    achievements: [
-      { id: 1, title: "First Steps", description: "Solve your first problem", earned: true, earnedDate: "2023-11-02" },
-    ],
-    recentActivity: [
-      { id: 1, problem: "Reverse String", difficulty: "Easy", status: "solved", date: "2024-01-25", time: "2m 50s" },
-    ],
-  },
-  "7": {
-    id: "7", name: "James Wilson", email: "james.w@example.com", avatar: "/diverse-user-avatars.png",
-    joinedDate: "2023-11-15", rank: 7, level: "Intermediate",
-    stats: { totalProblems: 110, solvedProblems: 63, easyProblems: 30, mediumProblems: 22, hardProblems: 11, currentStreak: 7, longestStreak: 12, points: 1450, totalUsers: 2847 },
-    achievements: [
-      { id: 1, title: "First Steps", description: "Solve your first problem", earned: true, earnedDate: "2023-11-16" },
-      { id: 2, title: "Problem Solver", description: "Solve 10 problems", earned: true, earnedDate: "2023-11-28" },
-    ],
-    recentActivity: [
-      { id: 1, problem: "Binary Search", difficulty: "Medium", status: "attempted", date: "2024-01-24", time: "14m 00s" },
-    ],
-  },
-  "8": {
-    id: "8", name: "Maria Garcia", email: "maria.g@example.com", avatar: "/diverse-user-avatars.png",
-    joinedDate: "2023-12-01", rank: 8, level: "Beginner",
-    stats: { totalProblems: 110, solvedProblems: 58, easyProblems: 28, mediumProblems: 20, hardProblems: 10, currentStreak: 4, longestStreak: 8, points: 1320, totalUsers: 2847 },
-    achievements: [
-      { id: 1, title: "First Steps", description: "Solve your first problem", earned: true, earnedDate: "2023-12-02" },
-    ],
-    recentActivity: [
-      { id: 1, problem: "Two Sum", difficulty: "Easy", status: "solved", date: "2024-01-23", time: "8m 05s" },
-    ],
-  },
 }
 
 function getLevelColor(level: string) {
@@ -153,14 +48,33 @@ export default function UserProfilePage() {
   const [, navigate] = useLocation()
   const [user, setUser] = useState<UserData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    setLoading(true)
-    setTimeout(() => {
-      const found = mockUsers[params.id] || null
-      setUser(found)
-      setLoading(false)
-    }, 300)
+    const fetchUser = async () => {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/user/${params.id}`)
+        if (!res.ok) {
+          if (res.status === 404) {
+            setError("User not found")
+          } else {
+            throw new Error("Failed to load user profile")
+          }
+          return
+        }
+        const data = await res.json()
+        setUser(data.user)
+      } catch (e: unknown) {
+        const err = e as { message?: string }
+        setError(err.message ?? "Failed to load user profile")
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    if (params.id) fetchUser()
   }, [params.id])
 
   if (loading) {
@@ -169,20 +83,20 @@ export default function UserProfilePage() {
         <Navigation />
         <PageContainer className="py-8">
           <div className="flex items-center justify-center h-64">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
           </div>
         </PageContainer>
       </div>
     )
   }
 
-  if (!user) {
+  if (error || !user) {
     return (
       <div className="min-h-screen bg-background">
         <Navigation />
         <PageContainer className="py-8">
           <div className="text-center space-y-4">
-            <h1 className="text-2xl font-bold">User not found</h1>
+            <h1 className="text-2xl font-bold">{error ?? "User not found"}</h1>
             <Button onClick={() => navigate("/leaderboard")}>Back to Leaderboard</Button>
           </div>
         </PageContainer>
@@ -209,7 +123,6 @@ export default function UserProfilePage() {
                 </Avatar>
                 <div className="text-center md:text-left flex-1">
                   <h1 className="text-3xl font-bold">{user.name}</h1>
-                  <p className="text-muted-foreground">{user.email}</p>
                   <p className="text-sm text-muted-foreground mt-1">Member since {user.joinedDate}</p>
                   <div className="flex flex-wrap justify-center md:justify-start gap-3 mt-4">
                     <Badge className="bg-primary/10 text-primary border-primary/20">
@@ -233,14 +146,14 @@ export default function UserProfilePage() {
               <CardContent className="pt-6 text-center">
                 <div className="text-3xl font-bold">{user.stats.solvedProblems}</div>
                 <div className="text-sm text-muted-foreground">Problems Solved</div>
-                <Progress value={(user.stats.solvedProblems / user.stats.totalProblems) * 100} className="mt-3" />
+                <Progress value={user.stats.totalProblems > 0 ? (user.stats.solvedProblems / user.stats.totalProblems) * 100 : 0} className="mt-3" />
               </CardContent>
             </Card>
             <Card>
               <CardContent className="pt-6 text-center">
                 <div className="text-3xl font-bold text-primary">#{user.rank}</div>
                 <div className="text-sm text-muted-foreground">Global Rank</div>
-                <div className="text-xs text-muted-foreground mt-3">of {user.stats.totalUsers.toLocaleString()} users</div>
+                <div className="text-xs text-muted-foreground mt-3">of {(user.stats.totalUsers || 0).toLocaleString()} users</div>
               </CardContent>
             </Card>
             <Card>
@@ -322,32 +235,36 @@ export default function UserProfilePage() {
             <TabsContent value="activity" className="mt-4">
               <Card>
                 <CardContent className="pt-4">
-                  <div className="space-y-3">
-                    {user.recentActivity.map((activity) => (
-                      <div key={activity.id} className="flex items-center justify-between p-3 rounded-lg border border-border/50">
-                        <div className="flex items-center gap-3">
-                          <div className={`flex h-8 w-8 items-center justify-center rounded-full ${activity.status === "solved" ? "bg-green-500/10" : "bg-red-500/10"}`}>
-                            {activity.status === "solved" ? (
-                              <CheckCircle className="h-4 w-4 text-green-500" />
-                            ) : (
-                              <XCircle className="h-4 w-4 text-red-500" />
-                            )}
-                          </div>
-                          <div>
-                            <div className="font-medium">{activity.problem}</div>
-                            <div className="flex items-center gap-2 mt-0.5">
-                              <Badge variant="outline" className="text-xs">{activity.difficulty}</Badge>
-                              <span className="text-xs text-muted-foreground">{activity.date}</span>
+                  {user.recentActivity.length === 0 ? (
+                    <p className="text-center text-muted-foreground py-8">No activity yet.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {user.recentActivity.map((activity) => (
+                        <div key={activity.id} className="flex items-center justify-between p-3 rounded-lg border border-border/50">
+                          <div className="flex items-center gap-3">
+                            <div className={`flex h-8 w-8 items-center justify-center rounded-full ${activity.status === "solved" ? "bg-green-500/10" : "bg-red-500/10"}`}>
+                              {activity.status === "solved" ? (
+                                <CheckCircle className="h-4 w-4 text-green-500" />
+                              ) : (
+                                <XCircle className="h-4 w-4 text-red-500" />
+                              )}
+                            </div>
+                            <div>
+                              <div className="font-medium">{activity.problem}</div>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                <Badge variant="outline" className="text-xs">{activity.difficulty}</Badge>
+                                <span className="text-xs text-muted-foreground">{activity.date}</span>
+                              </div>
                             </div>
                           </div>
+                          <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                            <Clock className="h-4 w-4" />
+                            <span>{activity.time}</span>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                          <Clock className="h-4 w-4" />
-                          <span>{activity.time}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </TabsContent>

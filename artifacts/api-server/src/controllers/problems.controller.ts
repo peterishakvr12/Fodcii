@@ -25,8 +25,9 @@ const createProblemSchema = z.object({
 
 export async function getProblems(req: Request, res: Response) {
   const { level, category, difficulty, search } = req.query as Record<string, string | undefined>;
+  const userId = req.user?.sub;
 
-  const cacheKey = `problems:list:${level ?? ""}:${category ?? ""}:${difficulty ?? ""}:${search ?? ""}`;
+  const cacheKey = `problems:list:${userId ?? "anon"}:${level ?? ""}:${category ?? ""}:${difficulty ?? ""}:${search ?? ""}`;
   const cached = cache.get<unknown>(cacheKey);
   if (cached) {
     res.set("X-Cache", "HIT");
@@ -35,7 +36,7 @@ export async function getProblems(req: Request, res: Response) {
   }
 
   try {
-    const problems = await listProblems({ level, category, difficulty, search });
+    const problems = await listProblems({ level, category, difficulty, search, userId });
     cache.set(cacheKey, problems, TTL.PROBLEMS_LIST, [TAGS.PROBLEMS]);
     res.set("X-Cache", "MISS");
     res.json({ problems });
@@ -52,7 +53,8 @@ export async function getProblem(req: Request, res: Response) {
     return;
   }
 
-  const cacheKey = `problems:detail:${id}`;
+  const userId = req.user?.sub;
+  const cacheKey = `problems:detail:${userId ?? "anon"}:${id}`;
   const cached = cache.get<unknown>(cacheKey);
   if (cached) {
     res.set("X-Cache", "HIT");
@@ -61,7 +63,7 @@ export async function getProblem(req: Request, res: Response) {
   }
 
   try {
-    const problem = await getProblemById(id);
+    const problem = await getProblemById(id, userId);
     if (!problem) {
       res.status(404).json({ error: "Problem not found" });
       return;
