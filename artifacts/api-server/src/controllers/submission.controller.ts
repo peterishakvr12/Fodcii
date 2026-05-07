@@ -3,7 +3,7 @@ import { getSubmissionById } from "../services/submission.service.js";
 import { submissionQueue } from "../lib/submission-worker.js";
 
 export async function getSubmissionStatus(req: Request, res: Response) {
-  const id = parseInt(req.params.id, 10);
+  const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) {
     res.status(400).json({ error: "Invalid submission ID" });
     return;

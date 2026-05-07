@@ -93,7 +93,7 @@ router.get("/leaderboard/me", requireAuth, resolveDbUser, readRateLimit, async (
 });
 
 router.get("/leaderboard/user/:id", readRateLimit, async (req, res) => {
-  const userId = parseInt(req.params.id, 10);
+  const userId = parseInt(req.params.id as string, 10);
   if (isNaN(userId)) {
     res.status(400).json({ error: "Invalid user ID" });
     return;

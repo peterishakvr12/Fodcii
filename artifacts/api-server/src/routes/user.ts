@@ -144,7 +144,7 @@ router.put("/user/profile", requireAuth, async (req, res) => {
 
 router.get("/user/:id", optionalAuth, async (req, res) => {
   try {
-    const userId = parseInt(req.params.id, 10)
+    const userId = parseInt(req.params.id as string, 10)
     if (isNaN(userId)) {
       return res.status(400).json({ error: "Invalid user ID" })
     }
